@@ -620,7 +620,7 @@
             try {
                 const response = await fetch('/courses');
                 const courses = await response.json();
-                currentCourse = courses.find(c => c.id === courseId);
+                currentCourse = (courses.courses || courses).find(c => c.id === courseId);
 
                 if (currentCourse) {
                     document.getElementById('header-code').textContent = currentCourse.code;
@@ -719,7 +719,7 @@
             const typingId = addTypingIndicator();
 
             try {
-                const response = await fetch('/chat', {
+                const response = await fetch('/course/' + courseId + '/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

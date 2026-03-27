@@ -1,0 +1,23 @@
+{
+  "6105": {
+    "name": "Data Science Engineering Methods",
+    "code": "INFO6105",
+    "professor": "Bill Claster",
+    "campus": "Arlington",
+    "term": "Spring 2026"
+  },
+  "5002": {
+    "name": "Introduction to Information Systems",
+    "code": "INFO5002",
+    "professor": "Bill Claster",
+    "campus": "Arlington",
+    "term": "Spring 2026"
+  },
+  "7390": {
+    "name": "Advances in Data Sciences",
+    "code": "INFO7390",
+    "professor": "Bill Claster",
+    "campus": "Arlington",
+    "term": "Spring 2026"
+  }
+}

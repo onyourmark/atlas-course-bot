@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.vercel/
+*.bak
+*.b64p1
+*.b64p2
+.DS_Store

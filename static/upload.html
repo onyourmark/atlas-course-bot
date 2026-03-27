@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ATLAS Course Materials Manager - Upload syllabi, transcripts, and manage course content.">
+    <title>ATLAS - Course Materials</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f8f7f5; color: #2c2c2c; line-height: 1.6; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 20px; }
+        header { background: #ffffff; border-bottom: 1px solid #e0ddd5; padding: 24px 0; margin-bottom: 40px; }
+        header .container { display: flex; align-items: center; justify-content: space-between; }
+        .logo { font-size: 24px; font-weight: 700; color: #CC0000; }
+        .header-subtitle { font-size: 14px; color: #6b6b6b; text-transform: uppercase; letter-spacing: 0.05em; }
+        .header-nav { display: flex; gap: 16px; }
+        .header-nav a { font-size: 13px; color: #6b6b6b; text-decoration: none; padding: 6px 12px; border-radius: 6px; transition: background 0.15s; }
+        .header-nav a:hover { background: #f0efe8; color: #2c2c2c; }
+        .page-title { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+        .page-description { font-size: 15px; color: #6b6b6b; margin-bottom: 32px; }
+        .course-grid { display: grid; gap: 24px; margin-bottom: 40px; }
+        .course-card { background: #ffffff; border: 1px solid #e0ddd5; border-radius: 10px; overflow: hidden; }
+        .course-card-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 24px; border-bottom: 1px solid #f0efe8; cursor: pointer; user-select: none; transition: background 0.15s; }
+        .course-card-header:hover { background: #fafaf8; }
+        .course-card-info { display: flex; align-items: center; gap: 16px; }
+        .course-code { font-size: 13px; font-weight: 700; color: #CC0000; background: #fff0f0; padding: 4px 10px; border-radius: 4px; font-family: "SF Mono", "Fira Code", Consolas, monospace; }
+        .course-name { font-size: 16px; font-weight: 600; }
+        .course-professor { font-size: 13px; color: #6b6b6b; }
+        .course-stats { display: flex; gap: 20px; font-size: 12px; color: #6b6b6b; }
+        .stat-item { display: flex; align-items: center; gap: 4px; }
+        .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .stat-dot.green { background: #4caf50; }
+        .stat-dot.gray { background: #ccc; }
+        .stat-dot.blue { background: #2196F3; }
+        .expand-icon { font-size: 18px; color: #999; transition: transform 0.2s; }
+        .course-card.expanded .expand-icon { transform: rotate(180deg); }
+        .course-card-body { display: none; padding: 24px; background: #fafaf8; }
+        .course-card.expanded .course-card-body { display: block; }
+        .section { margin-bottom: 24px; }
+        .section:last-child { margin-bottom: 0; }
+        .section-title { font-size: 12px; font-weight: 600; color: #6b6b6b; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+        .upload-zone { border: 2px dashed #d0cdc5; border-radius: 8px; padding: 28px; text-align: center; background: #ffffff; transition: border-color 0.2s, background 0.2s; cursor: pointer; }
+        .upload-zone:hover, .upload-zone.dragover { border-color: #CC0000; background: #fff8f8; }
+        .upload-zone-icon { font-size: 32px; margin-bottom: 8px; opacity: 0.6; }
+        .upload-zone-text { font-size: 14px; color: #6b6b6b; margin-bottom: 4px; }
+        .upload-zone-hint { font-size: 12px; color: #999; }
+        .upload-zone input[type="file"] { display: none; }
+        .file-list { list-style: none; }
+        .file-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: #ffffff; border: 1px solid #e8e5dd; border-radius: 6px; margin-bottom: 6px; font-size: 13px; }
+        .file-item-left { display: flex; align-items: center; gap: 10px; }
+        .file-icon { font-size: 18px; opacity: 0.7; }
+        .file-name { font-weight: 500; }
+        .file-size { font-size: 11px; color: #999; }
+        .file-date { font-size: 11px; color: #999; margin-right: 12px; }
+        .btn-delete { background: none; border: 1px solid #e0ddd5; color: #999; font-size: 12px; padding: 4px 10px; border-radius: 4px; cursor: pointer; transition: all 0.15s; }
+        .btn-delete:hover { border-color: #ef5350; color: #ef5350; background: #fff5f5; }
+        .btn-primary { background: #CC0000; color: #ffffff; border: none; padding: 10px 20px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+        .btn-primary:hover { background: #aa0000; }
+        .btn-primary:disabled { background: #ddd; cursor: not-allowed; }
+        .btn-secondary { background: #ffffff; color: #2c2c2c; border: 1px solid #e0ddd5; padding: 10px 20px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+        .btn-secondary:hover { background: #f0efe8; }
+        .action-row { display: flex; gap: 10px; margin-top: 16px; }
+        .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+        .toast { padding: 12px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; max-width: 360px; }
+        .toast.success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
+        .toast.error { background: #ffebee; color: #c62828; border: 1px solid #ef9a9a; }
+        .toast.info { background: #e3f2fd; color: #1565c0; border: 1px solid #90caf9; }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        .reload-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #6b6b6b; background: #f0efe8; padding: 4px 10px; border-radius: 4px; margin-top: 8px; }
+        .reload-badge .check { color: #4caf50; }
+        .empty-files { text-align: center; padding: 20px; color: #999; font-size: 13px; background: #ffffff; border: 1px solid #e8e5dd; border-radius: 6px; }
+        .spinner { width: 28px; height: 28px; border: 3px solid #e0ddd5; border-top-color: #CC0000; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 40px auto; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { text-align: center; color: #6b6b6b; font-size: 14px; }
+        footer { background: #1a1a1a; color: #ffffff; padding: 40px 0; margin-top: 60px; text-align: center; font-size: 13px; }
+        footer a { color: #CC0000; text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+        @media (max-width: 768px) { .course-card-header { flex-direction: column; align-items: flex-start; gap: 12px; } .course-stats { flex-wrap: wrap; } .header-nav { display: none; } }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div>
+                <div class="logo">ATLAS</div>
+                <div class="header-subtitle">Adaptive Teaching &amp; Learning Assistant System</div>
+                <div style="font-size: 12px; color: #999;">Course Materials Manager</div>
+            </div>
+            <div class="header-nav">
+                <a href="/">Courses</a>
+                <a href="/about">About</a>
+                <a id="admin-link" href="#">Admin</a>
+            </div>
+        </div>
+    </header>
+    <main class="container">
+        <h1 class="page-title">Course Materials</h1>
+        <p class="page-description">Upload syllabi and lecture transcripts for each course. Changes take effect immediately - no server restart needed.</p>
+        <div id="course-grid" class="course-grid">
+            <div class="spinner"></div>
+            <p class="loading-text">Loading courses...</p>
+        </div>
+    </main>
+    <div id="toast-container" class="toast-container"></div>
+    <footer>
+        ATLAS Lab &middot; Northeastern University &middot; <a href="mailto:b.claster@northeastern.edu">Prof. Bill Claster</a>
+    </footer>
+    <script>
+        function getKey() { return new URLSearchParams(window.location.search).get('key') || ''; }
+        function formatBytes(bytes) { if (bytes < 1024) return bytes + ' B'; if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB'; return (bytes / 1048576).toFixed(1) + ' MB'; }
+        function formatDate(iso) { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+        function escapeHtml(text) { const d = document.createElement('div'); d.textContent = text; return d.innerHTML; }
+        function showToast(message, type = 'success') { const container = document.getElementById('toast-container'); const toast = document.createElement('div'); toast.className = 'toast ' + type; toast.textContent = message; container.appendChild(toast); setTimeout(function() { toast.remove(); }, 4000); }
+
+        let coursesData = [];
+
+        async function fetchCourses() { const res = await fetch('/api/admin/courses?key=' + getKey()); if (!res.ok) throw new Error('Failed to load courses'); const data = await res.json(); return data.courses; }
+
+        async function uploadSyllabus(courseId, file) { const form = new FormData(); form.append('course_id', courseId); form.append('file', file); const res = await fetch('/api/admin/upload/syllabus?key=' + getKey(), { method: 'POST', body: form }); if (!res.ok) throw new Error('Upload failed'); return res.json(); }
+
+        async function uploadTranscripts(courseId, files) { const form = new FormData(); form.append('course_id', courseId); for (const file of files) { form.append('files', file); } const res = await fetch('/api/admin/upload/transcripts?key=' + getKey(), { method: 'POST', body: form }); if (!res.ok) throw new Error('Upload failed'); return res.json(); }
+
+        async function deleteFile(courseId, filename, fileType) { const res = await fetch('/api/admin/file?key=' + getKey() + '&course_id=' + courseId + '&filename=' + encodeURIComponent(filename) + '&file_type=' + fileType, { method: 'DELETE' }); if (!res.ok) throw new Error('Delete failed'); return res.json(); }
+
+        async function reloadCourse(courseId) { const res = await fetch('/api/admin/reload/' + courseId + '?key=' + getKey(), { method: 'POST' }); if (!res.ok) throw new Error('Reload failed'); return res.json(); }
+
+        function renderCourses(courses) {
+            const grid = document.getElementById('course-grid');
+            grid.innerHTML = '';
+            courses.forEach(function(course) {
+                const card = document.createElement('div');
+                card.className = 'course-card';
+                card.id = 'card-' + course.id;
+                const syllabusIcon = course.has_syllabus ? '<span class="stat-dot green"></span> Syllabus' : '<span class="stat-dot gray"></span> No syllabus';
+                const transcriptIcon = course.transcript_count > 0 ? '<span class="stat-dot green"></span> ' + course.transcript_count + ' transcript' + (course.transcript_count !== 1 ? 's' : '') : '<span class="stat-dot gray"></span> No transcripts';
+                const conceptIcon = course.concept_count > 0 ? '<span class="stat-dot blue"></span> ' + course.concept_count + ' concepts' : '<span class="stat-dot gray"></span> No concept map';
+
+                let transcriptListHtml = '';
+                if (course.transcript_files.length > 0) {
+                    transcriptListHtml = '<ul class="file-list">';
+                    course.transcript_files.forEach(function(f) {
+                        transcriptListHtml += '<li class="file-item"><div class="file-item-left"><span class="file-icon">&#128196;</span><span class="file-name">' + escapeHtml(f.name) + '</span><span class="file-size">' + formatBytes(f.size) + '</span></div><div><span class="file-date">' + formatDate(f.modified) + '</span><button class="btn-delete" onclick="handleDeleteTranscript(\'' + course.id + '\', \'' + escapeHtml(f.name) + '\')">Remove</button></div></li>';
+                    });
+                    transcriptListHtml += '</ul>';
+                } else {
+                    transcriptListHtml = '<div class="empty-files">No transcripts uploaded yet</div>';
+                }
+
+                card.innerHTML = '<div class="course-card-header" onclick="toggleCard(\'' + course.id + '\')">' +
+                    '<div class="course-card-info"><span class="course-code">' + escapeHtml(course.code) + '</span><div><div class="course-name">' + escapeHtml(course.name) + '</div><div class="course-professor">' + escapeHtml(course.professor) + ' &middot; ' + escapeHtml(course.term) + '</div></div></div>' +
+                    '<div style="display: flex; align-items: center; gap: 24px;"><div class="course-stats"><span class="stat-item">' + syllabusIcon + '</span><span class="stat-item">' + transcriptIcon + '</span><span class="stat-item">' + conceptIcon + '</span></div><span class="expand-icon">&#9662;</span></div></div>' +
+                    '<div class="course-card-body">' +
+                    '<div class="section"><div class="section-title">Syllabus</div>' +
+                    (course.has_syllabus ? '<div class="file-item"><div class="file-item-left"><span class="file-icon">&#128196;</span><span class="file-name">syllabus.md</span></div><div><button class="btn-delete" onclick="handleDeleteSyllabus(\'' + course.id + '\')">Remove</button></div></div>' : '') +
+                    '<div class="upload-zone" onclick="document.getElementById(\'syllabus-input-' + course.id + '\').click()" ondragover="event.preventDefault(); this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault(); this.classList.remove(\'dragover\'); handleSyllabusDrop(event, \'' + course.id + '\')"><div class="upload-zone-icon">&#128203;</div><div class="upload-zone-text">' + (course.has_syllabus ? 'Replace syllabus' : 'Upload syllabus') + '</div><div class="upload-zone-hint">.md or .txt file &mdash; click or drag &amp; drop</div><input type="file" id="syllabus-input-' + course.id + '" accept=".md,.txt" onchange="handleSyllabusSelect(event, \'' + course.id + '\')"></div></div>' +
+                    '<div class="section"><div class="section-title">Lecture Transcripts</div>' + transcriptListHtml +
+                    '<div class="upload-zone" style="margin-top: 10px;" onclick="document.getElementById(\'transcript-input-' + course.id + '\').click()" ondragover="event.preventDefault(); this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault(); this.classList.remove(\'dragover\'); handleTranscriptDrop(event, \'' + course.id + '\')"><div class="upload-zone-icon">&#128218;</div><div class="upload-zone-text">Upload transcripts</div><div class="upload-zone-hint">.docx or .txt files &mdash; select multiple or drag &amp; drop</div><input type="file" id="transcript-input-' + course.id + '" accept=".docx,.txt" multiple onchange="handleTranscriptSelect(event, \'' + course.id + '\')"></div></div>' +
+                    '<div class="section"><div class="section-title">Actions</div><div class="action-row"><button class="btn-secondary" onclick="handleReload(\'' + course.id + '\')">Reload Materials</button><button class="btn-primary" onclick="window.open(\'/course/' + course.id + '\', \'_blank\')">Open Chat</button></div><div class="reload-badge" id="reload-badge-' + course.id + '" style="display: none;"><span class="check">&#10003;</span><span id="reload-info-' + course.id + '"></span></div></div>' +
+                    '</div>';
+
+                grid.appendChild(card);
+            });
+        }
+
+        function toggleCard(courseId) { document.getElementById('card-' + courseId).classList.toggle('expanded'); }
+
+        async function handleSyllabusSelect(event, courseId) { const file = event.target.files[0]; if (!file) return; await doSyllabusUpload(courseId, file); }
+        async function handleSyllabusDrop(event, courseId) { const file = event.dataTransfer.files[0]; if (!file) return; await doSyllabusUpload(courseId, file); }
+        async function doSyllabusUpload(courseId, file) { try { showToast('Uploading syllabus for ' + courseId + '...', 'info'); await uploadSyllabus(courseId, file); showToast('Syllabus uploaded and course reloaded.', 'success'); await refreshAll(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
+
+        async function handleTranscriptSelect(event, courseId) { const files = event.target.files; if (!files.length) return; await doTranscriptUpload(courseId, files); }
+        async function handleTranscriptDrop(event, courseId) { const files = event.dataTransfer.files; if (!files.length) return; await doTranscriptUpload(courseId, files); }
+        async function doTranscriptUpload(courseId, files) { try { showToast('Uploading ' + files.length + ' file(s) for ' + courseId + '...', 'info'); const result = await uploadTranscripts(courseId, files); const count = result.files ? result.files.length : 0; showToast(count + ' transcript(s) uploaded. ' + result.reload_summary.transcript_chunks + ' chunks built.', 'success'); await refreshAll(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
+
+        async function handleDeleteTranscript(courseId, filename) { if (!confirm('Delete "' + filename + '" from course ' + courseId + '?')) return; try { await deleteFile(courseId, filename, 'transcript'); showToast('Deleted ' + filename + '.', 'success'); await refreshAll(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
+        async function handleDeleteSyllabus(courseId) { if (!confirm('Remove syllabus from course ' + courseId + '?')) return; try { await deleteFile(courseId, 'syllabus.md', 'syllabus'); showToast('Syllabus removed.', 'success'); await refreshAll(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
+
+        async function handleReload(courseId) { try { showToast('Reloading ' + courseId + '...', 'info'); const result = await reloadCourse(courseId); const badge = document.getElementById('reload-badge-' + courseId); const info = document.getElementById('reload-info-' + courseId); badge.style.display = 'inline-flex'; info.textContent = result.transcript_chunks + ' chunks, ' + result.concept_map_entries + ' concepts, ' + (result.system_prompt_chars / 1000).toFixed(1) + 'K prompt'; showToast('Course ' + courseId + ' reloaded successfully.', 'success'); } catch (e) { showToast('Error reloading: ' + e.message, 'error'); } }
+
+        async function refreshAll() { const expanded = new Set(); document.querySelectorAll('.course-card.expanded').forEach(function(c) { expanded.add(c.id.replace('card-', '')); }); coursesData = await fetchCourses(); renderCourses(coursesData); expanded.forEach(function(id) { const card = document.getElementById('card-' + id); if (card) card.classList.add('expanded'); }); }
+
+        document.addEventListener('DOMContentLoaded', async function() {
+            const key = getKey();
+            document.getElementById('admin-link').href = '/admin?key=' + key;
+            try { coursesData = await fetchCourses(); renderCourses(coursesData); } catch (e) { document.getElementById('course-grid').innerHTML = '<div style="text-align: center; padding: 60px; color: #c62828;">Access denied or failed to load courses.<br><small style="color: #999;">Make sure ?key=atlas2026 is in the URL.</small></div>'; }
+        });
+    </script>
+</body>
+</html>

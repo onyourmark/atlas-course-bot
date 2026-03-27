@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="ATLAS — Adaptive Teaching and Learning Assistant System. Course-specific AI teaching assistants grounded in actual lecture content.">
+    <title>ATLAS — Course Assistant Selection</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+            background: #f8f7f5;
+            color: #2c2c2c;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* Header */
+        header {
+            background: #ffffff;
+            border-bottom: 1px solid #e0ddd5;
+            padding: 40px 0;
+            margin-bottom: 50px;
+        }
+
+        header .container {
+            text-align: center;
+        }
+
+        .logo {
+            font-size: 28px;
+            font-weight: 700;
+            color: #CC0000;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #6b6b6b;
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .description {
+            font-size: 16px;
+            color: #2c2c2c;
+            max-width: 600px;
+            margin: 0 auto;
+            font-weight: 400;
+        }
+
+        /* Courses Grid */
+        .courses-section {
+            margin-bottom: 60px;
+        }
+
+        .courses-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 24px;
+            margin-bottom: 40px;
+        }
+
+        .course-card {
+            background: #ffffff;
+            border: 1px solid #e0ddd5;
+            border-radius: 8px;
+            padding: 28px;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .course-card:hover {
+            border-color: #CC0000;
+            box-shadow: 0 4px 12px rgba(204, 0, 0, 0.08);
+        }
+
+        .course-code {
+            font-size: 12px;
+            color: #6b6b6b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .course-name {
+            font-size: 20px;
+            font-weight: 600;
+            color: #2c2c2c;
+            margin-bottom: 12px;
+        }
+
+        .course-meta {
+            font-size: 13px;
+            color: #6b6b6b;
+            margin-bottom: 20px;
+            flex-grow: 1;
+        }
+
+        .course-professor {
+            margin-bottom: 4px;
+        }
+
+        .course-term {
+            margin-bottom: 0;
+        }
+
+        .launch-button {
+            background: #CC0000;
+            color: #ffffff;
+            border: none;
+            padding: 11px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+        }
+
+        .launch-button:hover {
+            background: #aa0000;
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(204, 0, 0, 0.2);
+        }
+
+        .launch-button:active {
+            transform: translateY(0);
+        }
+
+        /* Loading state */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6b6b6b;
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #e0ddd5;
+            border-top-color: #CC0000;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Footer */
+        footer {
+            background: #1a1a1a;
+            color: #ffffff;
+            padding: 40px 0;
+            margin-top: 80px;
+            text-align: center;
+            font-size: 13px;
+        }
+
+        footer a {
+            color: #CC0000;
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Error state */
+        .error-message {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+            padding: 16px;
+            border-radius: 6px;
+            margin: 20px auto;
+            max-width: 600px;
+            text-align: center;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            header {
+                padding: 30px 0;
+                margin-bottom: 30px;
+            }
+
+            .logo {
+                font-size: 24px;
+            }
+
+            .courses-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .description {
+                font-size: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="logo">ATLAS</div>
+            <div class="subtitle">Adaptive Teaching &amp; Learning Assistant System</div>
+            <div class="subtitle" style="margin-bottom: 0;">Northeastern University Arlington Campus</div>
+            <p class="description" style="margin-top: 20px;">Course-specific AI teaching assistants grounded in actual lecture content, not general knowledge.</p>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="courses-section">
+            <div id="courses-container">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Loading courses...
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        ATLAS Lab · Northeastern University · <a href="mailto:b.claster@northeastern.edu">Prof. Bill Claster</a>
+    </footer>
+
+    <script>
+        async function loadCourses() {
+            try {
+                const response = await fetch('/courses');
+                if (!response.ok) throw new Error('Failed to load courses');
+                const data = await response.json();
+                const courses = data.courses || data;
+
+                const container = document.getElementById('courses-container');
+
+                if (!courses || courses.length === 0) {
+                    container.innerHTML = '<div class="error-message">No courses available at this time.</div>';
+                    return;
+                }
+
+                const grid = document.createElement('div');
+                grid.className = 'courses-grid';
+
+                courses.forEach(course => {
+                    const card = document.createElement('div');
+                    card.className = 'course-card';
+                    card.innerHTML = `
+                        <div class="course-code">${escapeHtml(course.code)}</div>
+                        <div class="course-name">${escapeHtml(course.name)}</div>
+                        <div class="course-meta">
+                            <div class="course-professor">Prof. ${escapeHtml(course.professor)}</div>
+                            <div class="course-term">${escapeHtml(course.term)}</div>
+                        </div>
+                        <a href="/course/${encodeURIComponent(course.id)}" class="launch-button">Launch Assistant</a>
+                    `;
+                    grid.appendChild(card);
+                });
+
+                container.innerHTML = '';
+                container.appendChild(grid);
+            } catch (error) {
+                console.error('Error loading courses:', error);
+                const container = document.getElementById('courses-container');
+                container.innerHTML = '<div class="error-message">Error loading courses. Please refresh the page.</div>';
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        document.addEventListener('DOMContentLoaded', loadCourses);
+    </script>
+</body>
+</html>

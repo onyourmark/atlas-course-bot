@@ -6,11 +6,7 @@
     <meta name="description" content="ATLAS Course Assistant — AI teaching assistant for course-specific learning.">
     <title>ATLAS — Course Assistant</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -21,11 +17,7 @@
             overflow: hidden;
         }
 
-        .app-layout {
-            display: flex;
-            height: 100vh;
-            flex-direction: row;
-        }
+        .app-layout { display: flex; height: 100vh; flex-direction: row; }
 
         /* Sidebar */
         .sidebar {
@@ -67,16 +59,9 @@
             transition: width 0.3s ease;
         }
 
-        .progress-text {
-            font-size: 11px;
-            color: #6b6b6b;
-        }
+        .progress-text { font-size: 11px; color: #6b6b6b; }
 
-        .concepts-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 8px 0;
-        }
+        .concepts-list { flex: 1; overflow-y: auto; padding: 8px 0; }
 
         .concept-item {
             padding: 12px 16px;
@@ -104,18 +89,10 @@
             transition: background 0.2s ease;
         }
 
-        .concept-dot.covered {
-            background: #4a90d9;
-        }
+        .concept-dot.covered { background: #4a90d9; }
+        .concept-dot.explored { background: #4caf50; }
 
-        .concept-dot.explored {
-            background: #4caf50;
-        }
-
-        .concept-text {
-            flex: 1;
-            min-width: 0;
-        }
+        .concept-text { flex: 1; min-width: 0; }
 
         .concept-name {
             font-size: 13px;
@@ -136,27 +113,6 @@
             text-overflow: ellipsis;
         }
 
-        .concept-item[title] {
-            position: relative;
-        }
-
-        .concept-item:hover::after {
-            content: attr(title);
-            position: absolute;
-            bottom: 100%;
-            left: 16px;
-            background: #1a1a1a;
-            color: #ffffff;
-            padding: 6px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            white-space: normal;
-            z-index: 10;
-            width: 200px;
-            margin-bottom: 4px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-        }
-
         .sidebar-footer {
             padding: 16px;
             border-top: 1px solid #e0ddd5;
@@ -166,11 +122,7 @@
         }
 
         /* Main content area */
-        .main-content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-        }
+        .main-content { flex: 1; display: flex; flex-direction: column; }
 
         /* Header */
         header {
@@ -184,17 +136,8 @@
             gap: 20px;
         }
 
-        .header-left {
-            font-size: 20px;
-            font-weight: 700;
-            color: #CC0000;
-        }
-
-        .header-center {
-            flex: 1;
-            text-align: center;
-            min-width: 0;
-        }
+        .header-left { font-size: 20px; font-weight: 700; color: #CC0000; }
+        .header-center { flex: 1; text-align: center; min-width: 0; }
 
         .header-course-code {
             font-size: 12px;
@@ -213,12 +156,7 @@
             text-overflow: ellipsis;
         }
 
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-        }
+        .header-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
         .header-link {
             font-size: 13px;
@@ -228,9 +166,7 @@
             transition: color 0.2s ease;
         }
 
-        .header-link:hover {
-            color: #aa0000;
-        }
+        .header-link:hover { color: #aa0000; }
 
         .sidebar-toggle {
             display: none;
@@ -243,12 +179,7 @@
         }
 
         /* Chat area */
-        .chat-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
-        }
+        .chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 
         .messages {
             flex: 1;
@@ -259,36 +190,33 @@
             gap: 16px;
         }
 
-        .message {
-            display: flex;
-            gap: 12px;
-            animation: slideIn 0.3s ease;
-        }
+        .message { display: flex; gap: 12px; animation: slideIn 0.3s ease; }
 
         @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        .message.user {
-            justify-content: flex-end;
+        .message.user { justify-content: flex-end; }
+
+        .message-content {
+            background: #ffffff;
+            border: 1px solid #e0ddd5;
+            border-radius: 8px;
+            padding: 12px 16px;
+            max-width: 70%;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.6;
         }
 
-        .message-role {
-            font-size: 11px;
-            font-weight: 600;
-            color: #6b6b6b;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 4px;
+        .message.user .message-content {
+            background: #CC0000;
+            color: #ffffff;
+            border-color: #CC0000;
         }
 
+        /* Markdown styles for assistant messages */
         .message-content h3 {
             font-size: 15px;
             font-weight: 700;
@@ -303,13 +231,8 @@
             margin: 12px 0 6px 0;
         }
 
-        .message-content strong {
-            font-weight: 600;
-        }
-
-        .message-content em {
-            font-style: italic;
-        }
+        .message-content strong { font-weight: 600; }
+        .message-content em { font-style: italic; }
 
         .message-content hr {
             border: none;
@@ -322,9 +245,7 @@
             padding-left: 20px;
         }
 
-        .message-content li {
-            margin: 4px 0;
-        }
+        .message-content li { margin: 4px 0; }
 
         .message-content blockquote {
             border-left: 3px solid #CC0000;
@@ -357,101 +278,22 @@
             color: inherit;
         }
 
-        .message-content p {
-            margin: 8px 0;
-        }
+        .message-content p { margin: 8px 0; }
+        .message-content p:first-child { margin-top: 0; }
+        .message-content p:last-child { margin-bottom: 0; }
 
-        .message-content {
-            background: #ffffff;
-            border: 1px solid #e0ddd5;
-            border-radius: 8px;
-            padding: 12px 16px;
-            max-width: 70%;
-            word-wrap: break-word;
-        }
-
-        .message.user .message-content h3 {
-            font-size: 15px;
-            font-weight: 700;
-            color: #2c2c2c;
-            margin: 16px 0 8px 0;
-        }
-
-        .message-content h4 {
-            font-size: 14px;
-            font-weight: 600;
-            color: #2c2c2c;
-            margin: 12px 0 6px 0;
-        }
-
-        .message-content strong {
-            font-weight: 600;
-        }
-
-        .message-content em {
-            font-style: italic;
-        }
-
-        .message-content hr {
-            border: none;
-            border-top: 1px solid #e0ddd5;
-            margin: 16px 0;
-        }
-
-        .message-content ul {
-            margin: 8px 0;
-            padding-left: 20px;
-        }
-
-        .message-content li {
-            margin: 4px 0;
-        }
-
-        .message-content blockquote {
-            border-left: 3px solid #CC0000;
-            padding-left: 12px;
-            margin: 8px 0;
-            color: #555;
-            font-style: italic;
-        }
-
-        .message-content code {
-            background: #f0f0f0;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: "SF Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
-        }
-
-        .message-content pre {
-            background: #1a1a1a;
-            color: #e0e0e0;
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            margin: 8px 0;
-        }
-
-        .message-content pre code {
-            background: none;
-            padding: 0;
-            color: inherit;
-        }
-
-        .message-content p {
-            margin: 8px 0;
-        }
-
-        .message-content {
-            background: #CC0000;
+        /* Override markdown styles inside user messages (keep white text) */
+        .message.user .message-content h3,
+        .message.user .message-content h4,
+        .message.user .message-content strong,
+        .message.user .message-content em,
+        .message.user .message-content p,
+        .message.user .message-content li,
+        .message.user .message-content blockquote {
             color: #ffffff;
-            border-color: #CC0000;
         }
 
-        .message-bubble {
-            display: flex;
-            flex-direction: column;
-        }
+        .message-bubble { display: flex; flex-direction: column; }
 
         .feedback-buttons {
             display: flex;
@@ -459,10 +301,6 @@
             margin-top: 8px;
             justify-content: flex-start;
             font-size: 16px;
-        }
-
-        .message.user .feedback-buttons {
-            justify-content: flex-end;
         }
 
         .feedback-btn {
@@ -475,15 +313,9 @@
             transition: opacity 0.2s ease;
         }
 
-        .feedback-btn:hover {
-            opacity: 1;
-        }
+        .feedback-btn:hover { opacity: 1; }
 
-        .feedback-text {
-            font-size: 12px;
-            color: #6b6b6b;
-            margin-top: 8px;
-        }
+        .feedback-text { font-size: 12px; color: #6b6b6b; margin-top: 8px; }
 
         .feedback-input-container {
             display: flex;
@@ -501,6 +333,20 @@
             resize: none;
             max-width: 300px;
         }
+
+        .understand-button {
+            font-size: 12px;
+            background: #4caf50;
+            color: #ffffff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: background 0.2s ease;
+        }
+
+        .understand-button:hover { background: #45a049; }
 
         .mode-toggle-button {
             font-size: 12px;
@@ -526,27 +372,7 @@
             color: #4caf50;
         }
 
-        .understand-button {
-            font-size: 12px;
-            background: #4caf50;
-            color: #ffffff;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            margin-top: 8px;
-            transition: background 0.2s ease;
-        }
-
-        .understand-button:hover {
-            background: #45a049;
-        }
-
-        .typing-indicator {
-            display: flex;
-            gap: 4px;
-            padding: 12px 16px;
-        }
+        .typing-indicator { display: flex; gap: 4px; padding: 12px 16px; }
 
         .typing-dot {
             width: 8px;
@@ -556,13 +382,8 @@
             animation: blink 1.4s infinite;
         }
 
-        .typing-dot:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-
-        .typing-dot:nth-child(3) {
-            animation-delay: 0.4s;
-        }
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
         @keyframes blink {
             0%, 60%, 100% { opacity: 0.3; }
@@ -577,10 +398,7 @@
             flex-shrink: 0;
         }
 
-        .input-container {
-            display: flex;
-            gap: 12px;
-        }
+        .input-container { display: flex; gap: 12px; }
 
         .input-textarea {
             flex: 1;
@@ -600,9 +418,7 @@
             box-shadow: 0 0 0 3px rgba(204, 0, 0, 0.1);
         }
 
-        .input-textarea::placeholder {
-            color: #6b6b6b;
-        }
+        .input-textarea::placeholder { color: #6b6b6b; }
 
         .send-button {
             background: #CC0000;
@@ -621,14 +437,8 @@
             justify-content: center;
         }
 
-        .send-button:hover:not(:disabled) {
-            background: #aa0000;
-        }
-
-        .send-button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+        .send-button:hover:not(:disabled) { background: #aa0000; }
+        .send-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
         /* Welcome message */
         .welcome-message {
@@ -637,10 +447,7 @@
             padding: 40px 20px;
         }
 
-        .welcome-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-        }
+        .welcome-icon { font-size: 48px; margin-bottom: 16px; }
 
         .welcome-title {
             font-size: 18px;
@@ -653,198 +460,24 @@
         @media (max-width: 900px) {
             .sidebar {
                 position: absolute;
-                left: 0;
-                top: 0;
+                left: 0; top: 0;
                 height: 100%;
                 z-index: 100;
                 box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
                 display: none;
             }
-
-            .sidebar.open {
-                display: flex;
-            }
-
-            .sidebar-toggle {
-                display: block;
-            }
-
-            .message-content h3 {
-            font-size: 15px;
-            font-weight: 700;
-            color: #2c2c2c;
-            margin: 16px 0 8px 0;
-        }
-
-        .message-content h4 {
-            font-size: 14px;
-            font-weight: 600;
-            color: #2c2c2c;
-            margin: 12px 0 6px 0;
-        }
-
-        .message-content strong {
-            font-weight: 600;
-        }
-
-        .message-content em {
-            font-style: italic;
-        }
-
-        .message-content hr {
-            border: none;
-            border-top: 1px solid #e0ddd5;
-            margin: 16px 0;
-        }
-
-        .message-content ul {
-            margin: 8px 0;
-            padding-left: 20px;
-        }
-
-        .message-content li {
-            margin: 4px 0;
-        }
-
-        .message-content blockquote {
-            border-left: 3px solid #CC0000;
-            padding-left: 12px;
-            margin: 8px 0;
-            color: #555;
-            font-style: italic;
-        }
-
-        .message-content code {
-            background: #f0f0f0;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: "SF Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
-        }
-
-        .message-content pre {
-            background: #1a1a1a;
-            color: #e0e0e0;
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            margin: 8px 0;
-        }
-
-        .message-content pre code {
-            background: none;
-            padding: 0;
-            color: inherit;
-        }
-
-        .message-content p {
-            margin: 8px 0;
-        }
-
-        .message-content {
-                max-width: 85%;
-            }
+            .sidebar.open { display: flex; }
+            .sidebar-toggle { display: block; }
+            .message-content { max-width: 85%; }
         }
 
         @media (max-width: 600px) {
-            header {
-                flex-wrap: wrap;
-                gap: 8px;
-            }
-
-            .header-center {
-                flex-basis: 100%;
-                order: 3;
-            }
-
-            .header-right {
-                flex-basis: 100%;
-                order: 2;
-            }
-
-            .message-content h3 {
-            font-size: 15px;
-            font-weight: 700;
-            color: #2c2c2c;
-            margin: 16px 0 8px 0;
-        }
-
-        .message-content h4 {
-            font-size: 14px;
-            font-weight: 600;
-            color: #2c2c2c;
-            margin: 12px 0 6px 0;
-        }
-
-        .message-content strong {
-            font-weight: 600;
-        }
-
-        .message-content em {
-            font-style: italic;
-        }
-
-        .message-content hr {
-            border: none;
-            border-top: 1px solid #e0ddd5;
-            margin: 16px 0;
-        }
-
-        .message-content ul {
-            margin: 8px 0;
-            padding-left: 20px;
-        }
-
-        .message-content li {
-            margin: 4px 0;
-        }
-
-        .message-content blockquote {
-            border-left: 3px solid #CC0000;
-            padding-left: 12px;
-            margin: 8px 0;
-            color: #555;
-            font-style: italic;
-        }
-
-        .message-content code {
-            background: #f0f0f0;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-family: "SF Mono", "Fira Code", Consolas, monospace;
-            font-size: 12px;
-        }
-
-        .message-content pre {
-            background: #1a1a1a;
-            color: #e0e0e0;
-            padding: 12px;
-            border-radius: 6px;
-            overflow-x: auto;
-            margin: 8px 0;
-        }
-
-        .message-content pre code {
-            background: none;
-            padding: 0;
-            color: inherit;
-        }
-
-        .message-content p {
-            margin: 8px 0;
-        }
-
-        .message-content {
-                max-width: 95%;
-            }
-
-            .messages {
-                padding: 16px;
-            }
-
-            .input-area {
-                padding: 16px;
-            }
+            header { flex-wrap: wrap; gap: 8px; }
+            .header-center { flex-basis: 100%; order: 3; }
+            .header-right { flex-basis: 100%; order: 2; }
+            .message-content { max-width: 95%; }
+            .messages { padding: 16px; }
+            .input-area { padding: 16px; }
         }
     </style>
 </head>
@@ -876,7 +509,7 @@
                 </div>
                 <div class="header-right">
                     <a href="/about" class="header-link">About</a>
-                    <button class="sidebar-toggle" id="sidebar-toggle">☰</button>
+                    <button class="sidebar-toggle" id="sidebar-toggle">&#9776;</button>
                 </div>
             </header>
 
@@ -884,7 +517,7 @@
             <div class="chat-container">
                 <div class="messages" id="messages">
                     <div class="welcome-message">
-                        <div class="welcome-icon">📚</div>
+                        <div class="welcome-icon">&#128218;</div>
                         <div class="welcome-title" id="welcome-title">Welcome!</div>
                         <p id="welcome-text">Ask me anything about this course. I'm familiar with all the lecture content and can help you understand key concepts.</p>
                     </div>
@@ -902,7 +535,6 @@
     </div>
 
     <script>
-        // Extract course ID from URL
         function escapeHtml(text) {
             var div = document.createElement('div');
             div.textContent = String(text);
@@ -910,33 +542,20 @@
         }
 
         function renderMarkdown(text) {
-            // Escape HTML first for safety
             var html = escapeHtml(text);
-            // Horizontal rules
             html = html.replace(/^---$/gm, '<hr>');
-            // Headers (## and ###)
             html = html.replace(/^### (.+)$/gm, '<h4>$1</h4>');
             html = html.replace(/^## (.+)$/gm, '<h3>$1</h3>');
-            // Bold
             html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-            // Italic
             html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-            // Inline code
-            html = html.replace(/([^]+)/g, '<code>$1</code>');
-            // Code blocks
-            html = html.replace(/`(\w*)\n([\s\S]*?)`/g, '<pre><code>$2</code></pre>');
-            // Blockquotes
+            html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+            html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
             html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-            // Unordered lists
             html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
             html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-            // Paragraphs - double newlines become paragraph breaks
             html = html.replace(/\n\n/g, '</p><p>');
-            // Single newlines become line breaks
             html = html.replace(/\n/g, '<br>');
-            // Wrap in paragraph
             html = '<p>' + html + '</p>';
-            // Clean up empty paragraphs
             html = html.replace(/<p><\/p>/g, '');
             html = html.replace(/<p><hr><\/p>/g, '<hr>');
             html = html.replace(/<p><h([34])>/g, '<h$1>');
@@ -950,15 +569,14 @@
             return html;
         }
 
-        const courseId = window.location.pathname.split('/').pop();
-        let sessionId;
-        let currentCourse = null;
-        let conceptMap = null;
-        let messageHistory = [];
-        let answerMode = 'socratic';
-        let firstAssistantMessage = true;
+        var courseId = window.location.pathname.split('/').pop();
+        var sessionId;
+        var currentCourse = null;
+        var conceptMap = null;
+        var messageHistory = [];
+        var answerMode = 'socratic';
+        var firstAssistantMessage = true;
 
-        // Initialize session
         function initSession() {
             if (!sessionStorage.getItem('atlas_session_id')) {
                 sessionId = generateUUID();
@@ -970,34 +588,32 @@
 
         function generateUUID() {
             return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                const r = Math.random() * 16 | 0;
-                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                var r = Math.random() * 16 | 0;
+                var v = c === 'x' ? r : (r & 0x3 | 0x8);
                 return v.toString(16);
             });
         }
 
-        // Load course info
         async function loadCourse() {
             try {
-                const response = await fetch('/courses');
-                const courses = await response.json();
-                currentCourse = (courses.courses || courses).find(c => c.id === courseId);
-
+                var response = await fetch('/courses');
+                var data = await response.json();
+                var courses = data.courses || data;
+                currentCourse = courses.find(function(c) { return c.id === courseId; });
                 if (currentCourse) {
                     document.getElementById('header-code').textContent = currentCourse.code;
                     document.getElementById('header-name').textContent = currentCourse.name;
-                    document.getElementById('welcome-title').textContent = `Welcome to ${currentCourse.code}`;
-                    document.getElementById('input-textarea').placeholder = `Ask about ${currentCourse.code}...`;
+                    document.getElementById('welcome-title').textContent = 'Welcome to ' + currentCourse.code;
+                    document.getElementById('input-textarea').placeholder = 'Ask about ' + currentCourse.code + '...';
                 }
             } catch (error) {
                 console.error('Error loading course:', error);
             }
         }
 
-        // Load concept map
         async function loadConceptMap() {
             try {
-                const response = await fetch(`/course/${courseId}/concept-map`);
+                var response = await fetch('/course/' + courseId + '/concept-map');
                 conceptMap = await response.json();
                 renderConceptMap();
             } catch (error) {
@@ -1007,54 +623,44 @@
         }
 
         function renderConceptMap() {
-            const list = document.getElementById('concepts-list');
+            var list = document.getElementById('concepts-list');
             list.innerHTML = '';
+            if (!conceptMap || !conceptMap.concepts || conceptMap.concepts.length === 0) return;
 
-            if (!conceptMap || !conceptMap.concepts || conceptMap.concepts.length === 0) {
-                return;
-            }
+            var explored = JSON.parse(localStorage.getItem('atlas_progress_' + courseId) || '{}');
+            var exploredCount = 0;
 
-            const explored = JSON.parse(localStorage.getItem(`atlas_progress_${courseId}`) || '{}');
-            let exploredCount = 0;
-
-            conceptMap.concepts.forEach(concept => {
-                const isExplored = explored[concept.id];
+            conceptMap.concepts.forEach(function(concept) {
+                var isExplored = explored[concept.id];
                 if (isExplored) exploredCount++;
 
-                const item = document.createElement('div');
+                var item = document.createElement('div');
                 item.className = 'concept-item';
                 item.title = concept.description || '';
 
-                const dot = document.createElement('div');
+                var dot = document.createElement('div');
                 dot.className = 'concept-dot';
-                if (isExplored) {
-                    dot.classList.add('explored');
-                } else if (concept.lectures && concept.lectures.length > 0) {
-                    dot.classList.add('covered');
-                }
+                if (isExplored) { dot.classList.add('explored'); }
+                else if (concept.lectures && concept.lectures.length > 0) { dot.classList.add('covered'); }
 
-                const text = document.createElement('div');
+                var text = document.createElement('div');
                 text.className = 'concept-text';
 
-                const name = document.createElement('div');
+                var name = document.createElement('div');
                 name.className = 'concept-name';
                 name.textContent = concept.name;
 
-                const lectures = document.createElement('div');
+                var lectures = document.createElement('div');
                 lectures.className = 'concept-lectures';
-                lectures.textContent = concept.lectures ? `L${concept.lectures.join(', L')}` : '';
+                lectures.textContent = concept.lectures ? 'L' + concept.lectures.join(', L') : '';
 
                 text.appendChild(name);
-                if (lectures.textContent) {
-                    text.appendChild(lectures);
-                }
-
+                if (lectures.textContent) text.appendChild(lectures);
                 item.appendChild(dot);
                 item.appendChild(text);
 
-                item.addEventListener('click', () => {
-                    const message = `Tell me about ${concept.name} and what I need to know before studying it.`;
-                    sendMessage(message);
+                item.addEventListener('click', function() {
+                    sendMessage('Tell me about ' + concept.name + ' and what I need to know before studying it.');
                 });
 
                 list.appendChild(item);
@@ -1062,25 +668,18 @@
 
             document.getElementById('progress-count').textContent = exploredCount;
             document.getElementById('progress-total').textContent = conceptMap.concepts.length;
-            const percent = conceptMap.concepts.length > 0 ? (exploredCount / conceptMap.concepts.length) * 100 : 0;
+            var percent = conceptMap.concepts.length > 0 ? (exploredCount / conceptMap.concepts.length) * 100 : 0;
             document.getElementById('progress-fill').style.width = percent + '%';
         }
 
-        // Chat functions
         async function sendMessage(text) {
             if (!text.trim()) return;
-
-            const textarea = document.getElementById('input-textarea');
-            textarea.value = '';
-
-            // Add user message
+            document.getElementById('input-textarea').value = '';
             addMessage('user', text);
-
-            // Show typing indicator
-            const typingId = addTypingIndicator();
+            var typingId = addTypingIndicator();
 
             try {
-                const response = await fetch('/course/' + courseId + '/chat', {
+                var response = await fetch('/course/' + courseId + '/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -1092,8 +691,7 @@
                 });
 
                 if (!response.ok) throw new Error('Chat error');
-                const data = await response.json();
-
+                var data = await response.json();
                 removeTypingIndicator(typingId);
                 addMessage('assistant', data.response);
                 messageHistory.push({ role: 'user', content: text });
@@ -1106,58 +704,49 @@
         }
 
         function addMessage(role, content) {
-            const messagesDiv = document.getElementById('messages');
+            var messagesDiv = document.getElementById('messages');
+            var welcome = messagesDiv.querySelector('.welcome-message');
+            if (welcome && role === 'user') welcome.remove();
 
-            // Remove welcome message on first message
-            const welcome = messagesDiv.querySelector('.welcome-message');
-            if (welcome && role === 'user') {
-                welcome.remove();
-            }
+            var message = document.createElement('div');
+            message.className = 'message ' + role;
 
-            const message = document.createElement('div');
-            message.className = `message ${role}`;
-
-            const bubble = document.createElement('div');
+            var bubble = document.createElement('div');
             bubble.className = 'message-bubble';
 
-            const contentDiv = document.createElement('div');
+            var contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
             contentDiv.innerHTML = role === 'user' ? escapeHtml(content) : renderMarkdown(content);
 
             bubble.appendChild(contentDiv);
 
-            // Add feedback for assistant messages
             if (role === 'assistant') {
-                const feedback = document.createElement('div');
+                var feedback = document.createElement('div');
                 feedback.className = 'feedback-buttons';
 
-                const thumbsUp = document.createElement('button');
+                var thumbsUp = document.createElement('button');
                 thumbsUp.className = 'feedback-btn';
-                thumbsUp.textContent = '👍';
-                thumbsUp.addEventListener('click', () => submitFeedback(content, 1, feedback));
+                thumbsUp.textContent = '\uD83D\uDC4D';
+                thumbsUp.addEventListener('click', function() { submitFeedback(content, 1, feedback); });
 
-                const thumbsDown = document.createElement('button');
+                var thumbsDown = document.createElement('button');
                 thumbsDown.className = 'feedback-btn';
-                thumbsDown.textContent = '👎';
-                thumbsDown.addEventListener('click', () => {
-                    submitFeedback(content, 0, feedback, true);
-                });
+                thumbsDown.textContent = '\uD83D\uDC4E';
+                thumbsDown.addEventListener('click', function() { submitFeedback(content, 0, feedback, true); });
 
                 feedback.appendChild(thumbsUp);
                 feedback.appendChild(thumbsDown);
                 bubble.appendChild(feedback);
 
-                // Add understand button (detect if assistant mentioned concepts)
-                const understandBtn = document.createElement('button');
+                var understandBtn = document.createElement('button');
                 understandBtn.className = 'understand-button';
-                understandBtn.textContent = 'Mark as understood ✓';
-                understandBtn.addEventListener('click', () => {
+                understandBtn.textContent = 'Mark as understood \u2713';
+                understandBtn.addEventListener('click', function() {
                     markConceptAsUnderstood();
                     understandBtn.remove();
                 });
                 bubble.appendChild(understandBtn);
 
-                // Show mode toggle on first assistant message
                 if (firstAssistantMessage && answerMode === 'socratic') {
                     firstAssistantMessage = false;
                     var modeToggle = document.createElement('button');
@@ -1165,7 +754,7 @@
                     modeToggle.textContent = 'Give me direct answers instead';
                     modeToggle.addEventListener('click', function() {
                         answerMode = 'direct';
-                        modeToggle.textContent = 'Direct answers mode';
+                        modeToggle.textContent = 'Direct answers mode \u2713';
                         modeToggle.disabled = true;
                         modeToggle.style.opacity = '0.6';
                     });
@@ -1179,8 +768,8 @@
         }
 
         function addTypingIndicator() {
-            const messagesDiv = document.getElementById('messages');
-            const typing = document.createElement('div');
+            var messagesDiv = document.getElementById('messages');
+            var typing = document.createElement('div');
             typing.className = 'message';
             typing.id = 'typing-' + Date.now();
             typing.innerHTML = '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>';
@@ -1190,29 +779,29 @@
         }
 
         function removeTypingIndicator(id) {
-            const el = document.getElementById(id);
+            var el = document.getElementById(id);
             if (el) el.remove();
         }
 
-        function submitFeedback(response, rating, container, showInput = false) {
+        function submitFeedback(response, rating, container, showInput) {
             fetch('/feedback', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     course_id: courseId,
                     session_id: sessionId,
-                    user_message: messageHistory[messageHistory.length - 2]?.content || '',
+                    user_message: messageHistory.length >= 2 ? messageHistory[messageHistory.length - 2].content : '',
                     bot_response: response,
                     rating: rating
                 })
-            }).catch(console.error);
+            }).catch(function(err) { console.error(err); });
 
             container.innerHTML = '<div class="feedback-text">Thanks for your feedback!</div>';
 
             if (showInput) {
-                const inputContainer = document.createElement('div');
+                var inputContainer = document.createElement('div');
                 inputContainer.className = 'feedback-input-container';
-                const textarea = document.createElement('textarea');
+                var textarea = document.createElement('textarea');
                 textarea.className = 'feedback-input';
                 textarea.placeholder = 'What could be better?';
                 textarea.rows = 2;
@@ -1222,50 +811,43 @@
         }
 
         function markConceptAsUnderstood() {
-            const explored = JSON.parse(localStorage.getItem(`atlas_progress_${courseId}`) || '{}');
+            var explored = JSON.parse(localStorage.getItem('atlas_progress_' + courseId) || '{}');
             if (conceptMap && conceptMap.concepts.length > 0) {
-                const concept = conceptMap.concepts[0];
+                var concept = conceptMap.concepts[0];
                 explored[concept.id] = true;
-                localStorage.setItem(`atlas_progress_${courseId}`, JSON.stringify(explored));
+                localStorage.setItem('atlas_progress_' + courseId, JSON.stringify(explored));
                 renderConceptMap();
             }
         }
 
-        // Input handling
-        document.getElementById('send-button').addEventListener('click', () => {
-            const text = document.getElementById('input-textarea').value;
-            sendMessage(text);
+        document.getElementById('send-button').addEventListener('click', function() {
+            sendMessage(document.getElementById('input-textarea').value);
         });
 
-        document.getElementById('input-textarea').addEventListener('keydown', (e) => {
+        document.getElementById('input-textarea').addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                const text = e.target.value;
-                sendMessage(text);
+                sendMessage(e.target.value);
             }
         });
 
-        // Auto-resize textarea
         document.getElementById('input-textarea').addEventListener('input', function() {
             this.style.height = 'auto';
             this.style.height = Math.min(this.scrollHeight, 120) + 'px';
         });
 
-        // Sidebar toggle
-        document.getElementById('sidebar-toggle').addEventListener('click', () => {
+        document.getElementById('sidebar-toggle').addEventListener('click', function() {
             document.getElementById('sidebar').classList.toggle('open');
         });
 
-        // Close sidebar on concept click (mobile)
-        document.addEventListener('click', (e) => {
-            const sidebar = document.getElementById('sidebar');
-            const toggle = document.getElementById('sidebar-toggle');
+        document.addEventListener('click', function(e) {
+            var sidebar = document.getElementById('sidebar');
+            var toggle = document.getElementById('sidebar-toggle');
             if (!sidebar.contains(e.target) && !toggle.contains(e.target)) {
                 sidebar.classList.remove('open');
             }
         });
 
-        // Initialize
         initSession();
         loadCourse();
         loadConceptMap();

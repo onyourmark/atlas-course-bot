@@ -790,9 +790,9 @@
                 body: JSON.stringify({
                     course_id: courseId,
                     session_id: sessionId,
-                    user_message: messageHistory.length >= 2 ? messageHistory[messageHistory.length - 2].content : '',
-                    bot_response: response,
-                    rating: rating
+                    message: messageHistory.length >= 2 ? messageHistory[messageHistory.length - 2].content : '',
+                    response: response,
+                    rating: rating === 1 ? 'up' : 'down'
                 })
             }).catch(function(err) { console.error(err); });
 

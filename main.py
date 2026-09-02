@@ -6,14 +6,14 @@ Built with FastAPI, Claude API, and Anthropic SDK.
 """
 
 import json
+import hmac
 import os
 import re
-import shutil
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -21,9 +21,9 @@ load_dotenv()
 import anthropic
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from knowledge import (
     load_courses,
@@ -36,12 +36,25 @@ from knowledge import (
     search_chunk_matches,
 )
 from prompts.system_prompt import build_system_prompt
+from concept_maps import build_concept_map_prompt, parse_concept_map_response
+from pilot_platform import (
+    MAX_DOCUMENT_BYTES,
+    PilotConfigurationError,
+    PilotStore,
+    PilotValidationError,
+    build_store_from_environment,
+    extract_document_text,
+)
 
 
 # -- Globals --
 
 CLIENT: Optional[anthropic.Anthropic] = None
-MODEL = "claude-sonnet-4-6"
+MODEL = os.getenv("ATLAS_MODEL", "claude-sonnet-4-6")
+PILOT_ENABLED = os.getenv("ATLAS_PILOT_ENABLED", "false").lower() == "true"
+PILOT_COOKIE_NAME = "atlas_pilot_session"
+PILOT_STORE: Optional[PilotStore] = None
+SECURE_COOKIES = os.getenv("ATLAS_SECURE_COOKIES", "true").lower() == "true"
 
 # Multi-course data structures (keyed by course_id)
 COURSES: Dict[str, Dict] = {}
@@ -64,25 +77,67 @@ NO_MATERIALS_RESPONSE = (
 
 class ChatMessage(BaseModel):
     """A message in the conversation history."""
-    role: str  # "user" or "assistant"
-    content: str
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=6000)
 
 
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
-    message: str
-    history: Optional[List[ChatMessage]] = None
-    session_id: Optional[str] = None
+    message: str = Field(min_length=1, max_length=4000)
+    history: Optional[List[ChatMessage]] = Field(default=None, max_length=12)
+    session_id: Optional[str] = Field(default=None, max_length=100)
 
 
 class FeedbackRequest(BaseModel):
     """Request body for feedback endpoint."""
     course_id: str
-    session_id: Optional[str] = None
-    message: str
-    response: str
-    rating: str  # "up" or "down"
-    comment: Optional[str] = None
+    session_id: Optional[str] = Field(default=None, max_length=100)
+    message: str = Field(max_length=8000)
+    response: str = Field(max_length=20000)
+    rating: Literal["up", "down"]
+    comment: Optional[str] = Field(default=None, max_length=1000)
+
+
+class FacultyLoginRequest(BaseModel):
+    email: str = Field(max_length=320)
+    password: str = Field(max_length=200)
+
+
+class FacultyJoinRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
+    name: str = Field(default="", max_length=120)
+    password: str = Field(max_length=200)
+
+
+class FacultyApiKeyRequest(BaseModel):
+    api_key: str = Field(max_length=500)
+
+
+class FacultyCourseCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    code: str = Field(min_length=1, max_length=40)
+    term: str = Field(min_length=1, max_length=80)
+    section: str = Field(default="", max_length=80)
+    campus: str = Field(default="Arlington", min_length=1, max_length=80)
+    monthly_question_limit: int = Field(default=500, ge=1, le=5000)
+
+
+class FacultyCourseStatusRequest(BaseModel):
+    status: Literal["draft", "published", "archived"]
+
+
+class PilotAdminLoginRequest(BaseModel):
+    password: str = Field(max_length=200)
+
+
+class PilotInvitationRequest(BaseModel):
+    email: str = Field(max_length=320)
+    name: str = Field(min_length=1, max_length=120)
+    expires_hours: int = Field(default=72, ge=1, le=168)
+
+
+class PilotTokenRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=200)
 
 
 # -- Initialization --
@@ -97,9 +152,12 @@ async def lifespan(app: FastAPI):
     print("ATLAS - Adaptive Teaching and Learning Assistant System")
     print("="*60 + "\n")
 
-    # Load courses registry
-    global COURSES
+    # Reset the in-memory indexes before loading legacy and pilot courses.
+    global COURSES, PILOT_STORE
     COURSES = load_courses()
+    SYSTEM_PROMPTS.clear()
+    CONCEPT_MAPS.clear()
+    COURSE_SOURCE_CHUNKS.clear()
     print(f"Loaded {len(COURSES)} courses from courses.json\n")
 
     # For each course, load materials and build structures
@@ -126,6 +184,13 @@ async def lifespan(app: FastAPI):
 
         print()
 
+    if PILOT_ENABLED:
+        PILOT_STORE = build_store_from_environment()
+        pilot_courses = PILOT_STORE.list_all_courses()
+        for course in pilot_courses:
+            _reload_pilot_course(course["id"])
+        print(f"Loaded {len(pilot_courses)} faculty pilot courses\n")
+
     print("="*60)
     print("ATLAS ready to serve requests")
     print("="*60 + "\n")
@@ -140,15 +205,103 @@ app = FastAPI(lifespan=lifespan)
 
 # -- CORS Middleware --
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ATLAS_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+if ALLOWED_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=ALLOWED_ORIGINS,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Permissions-Policy",
+        "camera=(), microphone=(), geolocation=(), payment=()",
+    )
+    if request.url.scheme == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    if request.url.path.startswith(
+        ("/faculty", "/pilot-admin", "/api/faculty", "/api/pilot-admin")
+    ):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 # -- Helper Functions --
+
+def _require_pilot_store() -> PilotStore:
+    """Return the configured pilot store without exposing secret details."""
+    if not PILOT_ENABLED or PILOT_STORE is None:
+        raise HTTPException(status_code=404, detail="Faculty pilot not found")
+    return PILOT_STORE
+
+
+def _pilot_course_config(course: Dict) -> Dict:
+    """Convert a persistent pilot record to the public course configuration."""
+    store = _require_pilot_store()
+    professor = store.get_professor(course["owner_id"])
+    return {
+        "name": course["name"],
+        "code": course["code"],
+        "professor": professor["name"] if professor else "Course instructor",
+        "campus": course["campus"],
+        "term": course["term"],
+        "section": course["section"],
+        "_managed": True,
+        "_owner_id": course["owner_id"],
+        "_status": course["status"],
+        "_list_on_homepage": False,
+        "_model": MODEL,
+    }
+
+
+def _reload_pilot_course(course_id: str) -> Dict:
+    """Reload one persistent faculty course into the in-memory search index."""
+    store = _require_pilot_store()
+    course = store.get_course(course_id)
+    if not course:
+        raise PilotValidationError("Course not found.")
+
+    syllabus, transcripts, concept_map = store.load_course_materials(course_id)
+    config = _pilot_course_config(course)
+    syllabus_documents = [
+        document
+        for document in store.list_documents(course_id)
+        if document["document_type"] == "syllabus"
+    ]
+    syllabus_filename = (
+        syllabus_documents[0]["filename"] if syllabus_documents else "syllabus"
+    )
+    chunks = build_course_chunks(
+        syllabus,
+        transcripts,
+        syllabus_filename=syllabus_filename,
+    )
+
+    COURSES[course_id] = config
+    CONCEPT_MAPS[course_id] = concept_map
+    COURSE_SOURCE_CHUNKS[course_id] = chunks
+    SYSTEM_PROMPTS[course_id] = build_system_prompt(config, concept_map, syllabus)
+    return {
+        "course_id": course_id,
+        "source_chunks": len(chunks),
+        "concept_count": len(
+            {key: value for key, value in concept_map.items() if key != "_meta"}
+        ),
+    }
+
 
 def _validate_course(course_id: str) -> Dict:
     """
@@ -157,15 +310,131 @@ def _validate_course(course_id: str) -> Dict:
     """
     if course_id not in COURSES:
         raise HTTPException(status_code=404, detail=f"Course {course_id} not found")
-    return COURSES[course_id]
+    config = COURSES[course_id]
+    if config.get("_managed") and config.get("_status") != "published":
+        raise HTTPException(status_code=404, detail=f"Course {course_id} not found")
+    return config
 
 
-def _get_client() -> anthropic.Anthropic:
-    """Create the Anthropic client when the first chat request needs it."""
+def _get_client(course_id: str) -> anthropic.Anthropic:
+    """Use the professor's key for pilot courses and the legacy key otherwise."""
+    config = COURSES.get(course_id, {})
+    if config.get("_managed"):
+        store = _require_pilot_store()
+        api_key = store.decrypted_api_key(config["_owner_id"])
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="This course assistant is temporarily unavailable.",
+            )
+        return anthropic.Anthropic(api_key=api_key)
+
     global CLIENT
     if CLIENT is None:
-        CLIENT = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="This course assistant is temporarily unavailable.",
+            )
+        CLIENT = anthropic.Anthropic(api_key=api_key)
     return CLIENT
+
+
+def _session_token(request: Request) -> str:
+    return request.cookies.get(PILOT_COOKIE_NAME, "")
+
+
+def _require_session(request: Request, role: str) -> Dict:
+    store = _require_pilot_store()
+    session = store.session_details(_session_token(request))
+    if not session or session["role"] != role:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    return session
+
+
+def _require_professor(request: Request) -> Dict:
+    store = _require_pilot_store()
+    session = _require_session(request, "professor")
+    professor = store.get_professor(session.get("professor_id") or "")
+    if not professor:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    return professor
+
+
+def _require_pilot_admin(request: Request) -> Dict:
+    return _require_session(request, "admin")
+
+
+def _set_session_cookie(response: JSONResponse, token: str) -> None:
+    response.set_cookie(
+        key=PILOT_COOKIE_NAME,
+        value=token,
+        max_age=12 * 60 * 60,
+        httponly=True,
+        secure=SECURE_COOKIES,
+        samesite="strict",
+        path="/",
+    )
+
+
+def _clear_session_cookie(response: JSONResponse) -> None:
+    response.delete_cookie(
+        key=PILOT_COOKIE_NAME,
+        httponly=True,
+        secure=SECURE_COOKIES,
+        samesite="strict",
+        path="/",
+    )
+
+
+def _public_course_config(course_id: str, config: Dict) -> Dict:
+    return {
+        "id": course_id,
+        "name": config.get("name", ""),
+        "code": config.get("code", ""),
+        "professor": config.get("professor", ""),
+        "campus": config.get("campus", ""),
+        "term": config.get("term", ""),
+        "section": config.get("section", ""),
+    }
+
+
+def _faculty_course_payload(store: PilotStore, course: Dict) -> Dict:
+    documents = store.list_documents(course["id"], course["owner_id"])
+    usage = store.monthly_usage(course["id"])
+    return {
+        "id": course["id"],
+        "name": course["name"],
+        "code": course["code"],
+        "term": course["term"],
+        "section": course["section"],
+        "campus": course["campus"],
+        "status": course["status"],
+        "monthly_question_limit": course["monthly_question_limit"],
+        "remaining_questions": store.remaining_questions(course["id"]),
+        "usage": usage,
+        "documents": documents,
+        "concept_count": len(
+            {
+                key: value
+                for key, value in CONCEPT_MAPS.get(course["id"], {}).items()
+                if key != "_meta"
+            }
+        ),
+        "student_path": (
+            f"/course/{course['id']}" if course["status"] == "published" else None
+        ),
+        "created_at": course["created_at"],
+        "updated_at": course["updated_at"],
+    }
+
+
+def _safe_session_id(candidate: Optional[str]) -> str:
+    value = (candidate or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{8,100}", value):
+        return value
+    return str(uuid.uuid4())
 
 
 def _append_feedback(feedback: Dict) -> None:
@@ -247,14 +516,22 @@ async def get_landing_page():
 
 @app.get("/courses")
 async def get_courses():
-    """Return list of all courses with metadata."""
+    """Return courses intended for the public landing page."""
     courses_list = []
     for course_id, config in COURSES.items():
-        courses_list.append({
-            "id": course_id,
-            **config
-        })
+        if config.get("_managed") and not config.get("_list_on_homepage"):
+            continue
+        if config.get("_managed") and config.get("_status") != "published":
+            continue
+        courses_list.append(_public_course_config(course_id, config))
     return {"courses": courses_list}
+
+
+@app.get("/course/{course_id}/metadata")
+async def get_course_metadata(course_id: str):
+    """Return safe metadata for one accessible course, including private-link courses."""
+    config = _validate_course(course_id)
+    return _public_course_config(course_id, config)
 
 
 @app.get("/course/{course_id}")
@@ -275,8 +552,8 @@ async def chat(course_id: str, request: ChatRequest):
     """
     Main chat endpoint. Processes a user message and returns an AI response.
     """
-    _validate_course(course_id)
-    session_id = request.session_id or str(uuid.uuid4())
+    config = _validate_course(course_id)
+    session_id = _safe_session_id(request.session_id)
 
     system_prompt = SYSTEM_PROMPTS.get(course_id, "")
     chunks = COURSE_SOURCE_CHUNKS.get(course_id, [])
@@ -342,10 +619,19 @@ async def chat(course_id: str, request: ChatRequest):
         "content": user_message
     })
 
+    if config.get("_managed"):
+        store = _require_pilot_store()
+        if store.remaining_questions(course_id) <= 0:
+            raise HTTPException(
+                status_code=429,
+                detail="This course has reached its monthly ATLAS question limit.",
+            )
+
     # Call Claude API
     try:
-        response = _get_client().messages.create(
-            model=MODEL,
+        model = config.get("_model", MODEL)
+        response = _get_client(course_id).messages.create(
+            model=model,
             max_tokens=2048,
             system=system_prompt,
             messages=messages,
@@ -353,6 +639,16 @@ async def chat(course_id: str, request: ChatRequest):
 
         assistant_message = response.content[0].text
         usage = response.usage
+
+        if config.get("_managed"):
+            _require_pilot_store().record_usage(
+                course_id=course_id,
+                professor_id=config["_owner_id"],
+                session_id=session_id,
+                model=model,
+                input_tokens=usage.input_tokens,
+                output_tokens=usage.output_tokens,
+            )
 
         return JSONResponse({
             "session_id": session_id,
@@ -366,8 +662,15 @@ async def chat(course_id: str, request: ChatRequest):
             }
         })
 
-    except anthropic.APIError as e:
-        raise HTTPException(status_code=500, detail=f"API error: {str(e)}")
+    except anthropic.APIError as exc:
+        print(
+            f"Anthropic API error for course {course_id}: "
+            f"{type(exc).__name__}"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="The course assistant could not complete that request. Please try again.",
+        ) from exc
 
 
 @app.get("/course/{course_id}/concept-map")
@@ -392,12 +695,27 @@ async def get_concept_map(course_id: str):
 @app.post("/feedback")
 async def post_feedback(request: FeedbackRequest):
     """Log user feedback on a response."""
-    _validate_course(request.course_id)
+    config = _validate_course(request.course_id)
+    if request.rating not in {"up", "down"}:
+        raise HTTPException(status_code=400, detail="Invalid feedback rating")
+
+    if config.get("_managed"):
+        timestamp = datetime.now(timezone.utc).isoformat()
+        _require_pilot_store().record_feedback(
+            course_id=request.course_id,
+            session_id=_safe_session_id(request.session_id),
+            rating=request.rating,
+            comment=request.comment or "",
+        )
+        return JSONResponse({
+            "status": "feedback_recorded",
+            "timestamp": timestamp,
+        })
 
     feedback = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "course_id": request.course_id,
-        "session_id": request.session_id or "unknown",
+        "session_id": _safe_session_id(request.session_id),
         "message": request.message,
         "response": request.response,
         "rating": request.rating,
@@ -413,10 +731,11 @@ async def post_feedback(request: FeedbackRequest):
 
 
 @app.get("/admin")
-async def get_admin_page(key: Optional[str] = None):
-    """Serve admin dashboard (protected with simple key check)."""
-    if key != "atlas2026":
-        raise HTTPException(status_code=403, detail="Unauthorized")
+async def get_admin_page(request: Request, key: Optional[str] = None):
+    """Serve the legacy dashboard or redirect to the pilot administrator."""
+    if PILOT_ENABLED:
+        return RedirectResponse(url="/pilot-admin", status_code=303)
+    _check_admin_access(request, key)
 
     admin_path = STATIC_DIR / "admin.html"
     if admin_path.exists():
@@ -426,10 +745,9 @@ async def get_admin_page(key: Optional[str] = None):
 
 
 @app.get("/api/admin/stats")
-async def get_admin_stats(key: Optional[str] = None):
+async def get_admin_stats(request: Request, key: Optional[str] = None):
     """Return aggregate statistics from feedback.json."""
-    if key != "atlas2026":
-        raise HTTPException(status_code=403, detail="Unauthorized")
+    _check_admin_access(request, key)
 
     feedback_list = _read_feedback()
 
@@ -505,12 +823,375 @@ async def health_check():
     })
 
 
+# -- Faculty Pilot --
+
+@app.get("/faculty/login")
+async def get_faculty_login_page():
+    _require_pilot_store()
+    path = STATIC_DIR / "faculty_login.html"
+    return FileResponse(path) if path.exists() else JSONResponse(
+        {"message": "Faculty login page not found"}, status_code=404
+    )
+
+
+@app.get("/faculty/join")
+async def get_faculty_join_page():
+    _require_pilot_store()
+    path = STATIC_DIR / "faculty_join.html"
+    return FileResponse(path) if path.exists() else JSONResponse(
+        {"message": "Faculty join page not found"}, status_code=404
+    )
+
+
+@app.get("/faculty")
+async def get_faculty_page(request: Request):
+    _require_pilot_store()
+    try:
+        _require_professor(request)
+    except HTTPException:
+        return RedirectResponse(url="/faculty/login", status_code=303)
+    path = STATIC_DIR / "faculty.html"
+    return FileResponse(path) if path.exists() else JSONResponse(
+        {"message": "Faculty dashboard not found"}, status_code=404
+    )
+
+
+@app.post("/api/faculty/login")
+async def faculty_login(payload: FacultyLoginRequest):
+    store = _require_pilot_store()
+    professor = store.authenticate_professor(payload.email, payload.password)
+    if not professor:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    token = store.create_session("professor", professor["id"])
+    response = JSONResponse({"professor": professor})
+    _set_session_cookie(response, token)
+    return response
+
+
+@app.post("/api/faculty/logout")
+async def faculty_logout(request: Request):
+    store = _require_pilot_store()
+    store.delete_session(_session_token(request))
+    response = JSONResponse({"status": "signed_out"})
+    _clear_session_cookie(response)
+    return response
+
+
+@app.post("/api/faculty/invitation")
+async def faculty_invitation(payload: PilotTokenRequest):
+    invitation = _require_pilot_store().invitation_details(payload.token)
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Invitation is invalid or expired")
+    return invitation
+
+
+@app.post("/api/faculty/join")
+async def faculty_join(payload: FacultyJoinRequest):
+    store = _require_pilot_store()
+    professor = store.accept_invitation(
+        payload.token,
+        payload.password,
+        payload.name,
+    )
+    token = store.create_session("professor", professor["id"])
+    response = JSONResponse({"professor": professor}, status_code=201)
+    _set_session_cookie(response, token)
+    return response
+
+
+@app.get("/api/faculty/me")
+async def faculty_me(request: Request):
+    return {"professor": _require_professor(request)}
+
+
+@app.put("/api/faculty/api-key")
+async def faculty_set_api_key(request: Request, payload: FacultyApiKeyRequest):
+    professor = _require_professor(request)
+    updated = _require_pilot_store().set_professor_api_key(
+        professor["id"], payload.api_key
+    )
+    return {"professor": updated}
+
+
+@app.delete("/api/faculty/api-key")
+async def faculty_delete_api_key(request: Request):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    published = [
+        course for course in store.list_courses_for_professor(professor["id"])
+        if course["status"] == "published"
+    ]
+    if published:
+        raise HTTPException(
+            status_code=409,
+            detail="Unpublish your active courses before removing the API key.",
+        )
+    updated = store.delete_professor_api_key(professor["id"])
+    return {"professor": updated}
+
+
+@app.get("/api/faculty/courses")
+async def faculty_list_courses(request: Request):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    courses = [
+        _faculty_course_payload(store, course)
+        for course in store.list_courses_for_professor(professor["id"])
+    ]
+    return {"courses": courses}
+
+
+@app.post("/api/faculty/courses")
+async def faculty_create_course(
+    request: Request,
+    payload: FacultyCourseCreateRequest,
+):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    course = store.create_course(
+        owner_id=professor["id"],
+        name=payload.name,
+        code=payload.code,
+        term=payload.term,
+        section=payload.section,
+        campus=payload.campus,
+        monthly_question_limit=payload.monthly_question_limit,
+    )
+    _reload_pilot_course(course["id"])
+    return JSONResponse(
+        _faculty_course_payload(store, course),
+        status_code=201,
+    )
+
+
+@app.post("/api/faculty/courses/{course_id}/documents")
+async def faculty_upload_documents(
+    course_id: str,
+    request: Request,
+    document_type: str = Form(...),
+    files: List[UploadFile] = File(...),
+):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    course = store.get_course(course_id)
+    if not course or course["owner_id"] != professor["id"]:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if document_type not in {"syllabus", "transcript"}:
+        raise HTTPException(status_code=400, detail="Invalid document type")
+    if not files or len(files) > 20:
+        raise HTTPException(status_code=400, detail="Upload between 1 and 20 files")
+
+    extracted_files = []
+    for upload in files:
+        content = await upload.read()
+        filename = upload.filename or ""
+        text = extract_document_text(filename, content)
+        extracted_files.append((filename, content, text))
+
+    saved = [
+        store.save_document(
+            course_id=course_id,
+            owner_id=professor["id"],
+            filename=filename,
+            document_type=document_type,
+            content=content,
+            extracted_text=text,
+        )
+        for filename, content, text in extracted_files
+    ]
+    _reload_pilot_course(course_id)
+    course = store.get_course(course_id)
+    return {
+        "documents": saved,
+        "course": _faculty_course_payload(store, course),
+    }
+
+
+@app.delete("/api/faculty/courses/{course_id}/documents/{document_id}")
+async def faculty_delete_document(
+    course_id: str,
+    document_id: str,
+    request: Request,
+):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    store.delete_document(document_id, course_id, professor["id"])
+    course = store.get_course(course_id)
+    if (
+        course
+        and course["status"] == "published"
+        and not store.list_documents(course_id, professor["id"])
+    ):
+        store.set_course_status(course_id, professor["id"], "draft")
+    _reload_pilot_course(course_id)
+    return {"status": "deleted"}
+
+
+@app.post("/api/faculty/courses/{course_id}/concept-map")
+async def faculty_generate_concept_map(course_id: str, request: Request):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    course = store.get_course(course_id)
+    if not course or course["owner_id"] != professor["id"]:
+        raise HTTPException(status_code=404, detail="Course not found")
+    if not professor["has_api_key"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Add your Anthropic API key before generating a concept map.",
+        )
+
+    syllabus, transcripts, _ = store.load_course_materials(course_id)
+    prompt = build_concept_map_prompt(course, syllabus, transcripts)
+    model = COURSES.get(course_id, {}).get("_model", MODEL)
+    try:
+        response = _get_client(course_id).messages.create(
+            model=model,
+            max_tokens=4096,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        concept_map = parse_concept_map_response(
+            response.content[0].text,
+            course_id,
+        )
+        store.set_concept_map(course_id, professor["id"], concept_map)
+        store.record_usage(
+            course_id=course_id,
+            professor_id=professor["id"],
+            session_id="faculty-concept-map",
+            model=model,
+            input_tokens=response.usage.input_tokens,
+            output_tokens=response.usage.output_tokens,
+            event_type="concept_map",
+        )
+        _reload_pilot_course(course_id)
+        return {
+            "status": "generated",
+            "concept_count": len(concept_map) - 1,
+        }
+    except anthropic.APIError as exc:
+        print(
+            f"Anthropic concept-map error for course {course_id}: "
+            f"{type(exc).__name__}"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="ATLAS could not generate the concept map. Please try again.",
+        ) from exc
+
+
+@app.post("/api/faculty/courses/{course_id}/status")
+async def faculty_set_course_status(
+    course_id: str,
+    request: Request,
+    payload: FacultyCourseStatusRequest,
+):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    course = store.get_course(course_id)
+    if not course or course["owner_id"] != professor["id"]:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    if payload.status == "published":
+        if not professor["has_api_key"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Add your Anthropic API key before publishing.",
+            )
+        if not store.list_documents(course_id, professor["id"]):
+            raise HTTPException(
+                status_code=400,
+                detail="Upload a syllabus or lecture transcript before publishing.",
+            )
+
+    updated = store.set_course_status(course_id, professor["id"], payload.status)
+    _reload_pilot_course(course_id)
+    return _faculty_course_payload(store, updated)
+
+
+@app.get("/pilot-admin")
+async def get_pilot_admin_page():
+    _require_pilot_store()
+    path = STATIC_DIR / "pilot_admin.html"
+    return FileResponse(path) if path.exists() else JSONResponse(
+        {"message": "Pilot admin page not found"}, status_code=404
+    )
+
+
+@app.post("/api/pilot-admin/login")
+async def pilot_admin_login(payload: PilotAdminLoginRequest):
+    store = _require_pilot_store()
+    configured_password = os.getenv("ATLAS_ADMIN_PASSWORD", "")
+    if not configured_password:
+        raise HTTPException(status_code=503, detail="Pilot administrator is not configured")
+    if not hmac.compare_digest(payload.password, configured_password):
+        raise HTTPException(status_code=401, detail="Invalid password")
+    token = store.create_session("admin")
+    response = JSONResponse({"status": "signed_in"})
+    _set_session_cookie(response, token)
+    return response
+
+
+@app.post("/api/pilot-admin/logout")
+async def pilot_admin_logout(request: Request):
+    store = _require_pilot_store()
+    store.delete_session(_session_token(request))
+    response = JSONResponse({"status": "signed_out"})
+    _clear_session_cookie(response)
+    return response
+
+
+@app.get("/api/pilot-admin/summary")
+async def pilot_admin_summary(request: Request):
+    _require_pilot_admin(request)
+    return _require_pilot_store().admin_summary()
+
+
+@app.post("/api/pilot-admin/invitations")
+async def pilot_admin_create_invitation(
+    request: Request,
+    payload: PilotInvitationRequest,
+):
+    _require_pilot_admin(request)
+    invitation, token = _require_pilot_store().create_invitation(
+        payload.email,
+        payload.name,
+        payload.expires_hours,
+    )
+    join_path = f"/faculty/join#token={token}"
+    invitation["join_path"] = join_path
+    public_base_url = os.getenv("ATLAS_PUBLIC_BASE_URL", "").strip().rstrip("/")
+    base_url = public_base_url or str(request.base_url).rstrip("/")
+    invitation["join_url"] = f"{base_url}{join_path}"
+    return JSONResponse(invitation, status_code=201)
+
+
 # -- Admin: Upload and Course Management --
 
-def _check_admin_key(key: Optional[str]) -> None:
-    """Validate admin key or raise 403."""
-    if key != "atlas2026":
+def _check_admin_access(request: Request, key: Optional[str]) -> None:
+    """Use a session in pilot mode and the configured key in legacy mode."""
+    if PILOT_ENABLED:
+        _require_pilot_admin(request)
+        return
+    configured_key = os.getenv("ATLAS_ADMIN_PASSWORD", "")
+    if not configured_key:
+        raise HTTPException(status_code=503, detail="Admin dashboard is not configured")
+    if not key or not hmac.compare_digest(key, configured_key):
         raise HTTPException(status_code=403, detail="Unauthorized")
+
+
+def _validate_legacy_course(course_id: str) -> Dict:
+    config = COURSES.get(course_id)
+    if not config:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Course {course_id} not found in courses.json",
+        )
+    if config.get("_managed"):
+        raise HTTPException(
+            status_code=400,
+            detail="Use the faculty dashboard to manage pilot course materials.",
+        )
+    return config
 
 
 def _reload_course(course_id: str) -> Dict:
@@ -518,9 +1199,7 @@ def _reload_course(course_id: str) -> Dict:
     Reload a single course's materials into the global dicts.
     Returns a summary of what was loaded.
     """
-    config = COURSES.get(course_id)
-    if not config:
-        raise HTTPException(status_code=404, detail=f"Course {course_id} not found in courses.json")
+    config = _validate_legacy_course(course_id)
 
     syllabus = load_syllabus(course_id)
     transcripts = load_transcripts(course_id)
@@ -541,9 +1220,9 @@ def _reload_course(course_id: str) -> Dict:
 
 
 @app.get("/admin/upload")
-async def get_upload_page(key: Optional[str] = None):
+async def get_upload_page(request: Request, key: Optional[str] = None):
     """Serve the upload/course management page (admin-protected)."""
-    _check_admin_key(key)
+    _check_admin_access(request, key)
     upload_path = STATIC_DIR / "upload.html"
     if upload_path.exists():
         return FileResponse(upload_path)
@@ -551,12 +1230,14 @@ async def get_upload_page(key: Optional[str] = None):
 
 
 @app.get("/api/admin/courses")
-async def admin_list_courses(key: Optional[str] = None):
+async def admin_list_courses(request: Request, key: Optional[str] = None):
     """List all courses with their file inventory."""
-    _check_admin_key(key)
+    _check_admin_access(request, key)
 
     result = []
     for course_id, config in COURSES.items():
+        if config.get("_managed"):
+            continue
         course_dir = KNOWLEDGE_DIR / course_id
 
         syllabus_path = course_dir / "syllabus.md"
@@ -600,18 +1281,21 @@ async def admin_list_courses(key: Optional[str] = None):
 
 @app.post("/api/admin/upload/syllabus")
 async def upload_syllabus(
+    request: Request,
     key: Optional[str] = None,
     course_id: str = Form(...),
     file: UploadFile = File(...),
 ):
     """Upload a syllabus file (.md or .txt) for a course."""
-    _check_admin_key(key)
-    _validate_course(course_id)
+    _check_admin_access(request, key)
+    _validate_legacy_course(course_id)
 
     course_dir = KNOWLEDGE_DIR / course_id
     course_dir.mkdir(parents=True, exist_ok=True)
 
     content = await file.read()
+    if len(content) > MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=400, detail="The syllabus must be 25 MB or smaller")
     syllabus_path = course_dir / "syllabus.md"
     syllabus_path.write_bytes(content)
 
@@ -628,27 +1312,37 @@ async def upload_syllabus(
 
 @app.post("/api/admin/upload/transcripts")
 async def upload_transcripts(
+    request: Request,
     key: Optional[str] = None,
     course_id: str = Form(...),
     files: List[UploadFile] = File(...),
 ):
     """Upload one or more transcript files (.docx or .txt) for a course."""
-    _check_admin_key(key)
-    _validate_course(course_id)
+    _check_admin_access(request, key)
+    _validate_legacy_course(course_id)
 
     transcripts_dir = KNOWLEDGE_DIR / course_id / "transcripts"
     transcripts_dir.mkdir(parents=True, exist_ok=True)
 
+    if len(files) > 20:
+        raise HTTPException(status_code=400, detail="Upload at most 20 transcripts")
+
     uploaded = []
     for file in files:
-        ext = Path(file.filename).suffix.lower()
+        filename = Path(file.filename or "").name
+        ext = Path(filename).suffix.lower()
         if ext not in (".txt", ".docx"):
             continue
 
         content = await file.read()
-        dest = transcripts_dir / file.filename
+        if len(content) > MAX_DOCUMENT_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{filename} must be 25 MB or smaller",
+            )
+        dest = transcripts_dir / filename
         dest.write_bytes(content)
-        uploaded.append({"name": file.filename, "size": len(content)})
+        uploaded.append({"name": filename, "size": len(content)})
 
     summary = _reload_course(course_id)
 
@@ -662,17 +1356,21 @@ async def upload_transcripts(
 
 @app.delete("/api/admin/file")
 async def delete_file(
+    request: Request,
     key: Optional[str] = None,
     course_id: str = "",
     filename: str = "",
     file_type: str = "",
 ):
     """Delete a transcript file from a course."""
-    _check_admin_key(key)
-    _validate_course(course_id)
+    _check_admin_access(request, key)
+    _validate_legacy_course(course_id)
 
     if file_type == "transcript":
-        target = KNOWLEDGE_DIR / course_id / "transcripts" / filename
+        safe_name = Path(filename).name
+        if not safe_name or safe_name != filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        target = KNOWLEDGE_DIR / course_id / "transcripts" / safe_name
     elif file_type == "syllabus":
         target = KNOWLEDGE_DIR / course_id / "syllabus.md"
     else:
@@ -694,10 +1392,14 @@ async def delete_file(
 
 
 @app.post("/api/admin/reload/{course_id}")
-async def reload_course(course_id: str, key: Optional[str] = None):
+async def reload_course(
+    course_id: str,
+    request: Request,
+    key: Optional[str] = None,
+):
     """Force-reload a course's materials without restarting the server."""
-    _check_admin_key(key)
-    _validate_course(course_id)
+    _check_admin_access(request, key)
+    _validate_legacy_course(course_id)
     summary = _reload_course(course_id)
     return JSONResponse({"status": "reloaded", **summary})
 
@@ -716,6 +1418,26 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
+    )
+
+
+@app.exception_handler(PilotValidationError)
+async def pilot_validation_error_handler(
+    request: Request,
+    exc: PilotValidationError,
+):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+
+@app.exception_handler(PilotConfigurationError)
+async def pilot_configuration_error_handler(
+    request: Request,
+    exc: PilotConfigurationError,
+):
+    print(f"ATLAS pilot configuration error: {exc}")
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "The faculty pilot is temporarily unavailable."},
     )
 
 

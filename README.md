@@ -2,7 +2,7 @@
 
 AI Teaching Assistant for **Data Science Engineering Methods** (INFO6105), Northeastern University.
 
-A chatbot grounded in your actual course materials — syllabus, lecture transcripts, and an auto-generated concept map. It answers the way a well-prepared TA would, using Professor Claster's own explanations and examples.
+A chatbot grounded in your actual course materials: syllabus, lecture transcripts, and an auto-generated concept map. Course answers display the supporting source name and a short excerpt. If the materials do not contain an answer, ATLAS says so rather than guessing.
 
 ## Quick Start
 

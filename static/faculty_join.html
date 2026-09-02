@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Join the ATLAS Arlington faculty pilot.">
+    <title>Join the faculty pilot | ATLAS</title>
+    <link rel="stylesheet" href="/static/pilot.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="/">
+                <span class="brand-mark">ATLAS</span>
+                <span class="brand-label">Arlington faculty pilot</span>
+            </a>
+            <a href="/faculty/login">Faculty sign in</a>
+        </div>
+    </header>
+    <main class="auth-page">
+        <section class="card">
+            <div class="card-body">
+                <p class="eyebrow">Pilot invitation</p>
+                <h1>Create your faculty account</h1>
+                <p class="lede" id="invite-summary">Checking your invitation...</p>
+                <form id="join-form" class="hidden">
+                    <div class="field">
+                        <label for="name">Your name</label>
+                        <input id="name" autocomplete="name" maxlength="120" required>
+                    </div>
+                    <div class="field">
+                        <label for="email">Northeastern email</label>
+                        <input id="email" type="email" disabled>
+                    </div>
+                    <div class="field">
+                        <label for="password">Create a password</label>
+                        <input id="password" type="password" autocomplete="new-password" minlength="12" required>
+                        <div class="muted small">Use at least 12 characters.</div>
+                    </div>
+                    <div class="field">
+                        <label for="confirm-password">Confirm password</label>
+                        <input id="confirm-password" type="password" autocomplete="new-password" minlength="12" required>
+                    </div>
+                    <button class="button full" id="submit-button" type="submit">Create account</button>
+                </form>
+                <div class="status-message" id="status" role="alert"></div>
+            </div>
+        </section>
+    </main>
+    <script>
+        const token = new URLSearchParams(window.location.hash.slice(1)).get('token') || '';
+        const form = document.getElementById('join-form');
+        const statusBox = document.getElementById('status');
+        const button = document.getElementById('submit-button');
+
+        function showStatus(message, kind) {
+            statusBox.textContent = message;
+            statusBox.className = 'status-message show ' + kind;
+        }
+
+        async function loadInvitation() {
+            try {
+                const response = await fetch('/api/faculty/invitation', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({token: token})
+                });
+                const invitation = await response.json();
+                if (!response.ok) throw new Error(invitation.detail || 'Invitation is invalid or expired');
+                document.getElementById('invite-summary').textContent = 'You have been invited to the five-professor ATLAS pilot.';
+                document.getElementById('name').value = invitation.name || '';
+                document.getElementById('email').value = invitation.email;
+                form.classList.remove('hidden');
+            } catch (error) {
+                document.getElementById('invite-summary').textContent = 'This invitation cannot be used.';
+                showStatus(error.message, 'error');
+            }
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const password = document.getElementById('password').value;
+            if (password !== document.getElementById('confirm-password').value) {
+                showStatus('The passwords do not match.', 'error');
+                return;
+            }
+            button.disabled = true;
+            try {
+                const response = await fetch('/api/faculty/join', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        token: token,
+                        name: document.getElementById('name').value,
+                        password: password
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Account creation failed');
+                window.location.assign('/faculty');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        });
+
+        loadInvitation();
+    </script>
+</body>
+</html>

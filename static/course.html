@@ -629,10 +629,9 @@
 
         async function loadCourse() {
             try {
-                var response = await fetch('/courses');
-                var data = await response.json();
-                var courses = data.courses || data;
-                currentCourse = courses.find(function(c) { return c.id === courseId; });
+                var response = await fetch('/course/' + encodeURIComponent(courseId) + '/metadata');
+                if (!response.ok) throw new Error('Course not found');
+                currentCourse = await response.json();
                 if (currentCourse) {
                     document.getElementById('header-code').textContent = currentCourse.code;
                     document.getElementById('header-name').textContent = currentCourse.name;
@@ -658,7 +657,10 @@
         function renderConceptMap() {
             var list = document.getElementById('concepts-list');
             list.innerHTML = '';
-            if (!conceptMap || !conceptMap.concepts || conceptMap.concepts.length === 0) return;
+            if (!conceptMap || !conceptMap.concepts || conceptMap.concepts.length === 0) {
+                document.getElementById('sidebar-footer').textContent = 'No concept map has been added for this course yet.';
+                return;
+            }
 
             var explored = JSON.parse(localStorage.getItem('atlas_progress_' + courseId) || '{}');
             var exploredCount = 0;
@@ -703,6 +705,7 @@
             document.getElementById('progress-total').textContent = conceptMap.concepts.length;
             var percent = conceptMap.concepts.length > 0 ? (exploredCount / conceptMap.concepts.length) * 100 : 0;
             document.getElementById('progress-fill').style.width = percent + '%';
+            document.getElementById('sidebar-footer').textContent = 'Select a concept to explore it with ATLAS.';
         }
 
         async function sendMessage(text) {
@@ -723,8 +726,8 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('Chat error');
                 var data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'The course assistant could not complete that request.');
                 removeTypingIndicator(typingId);
                 addMessage('assistant', data.response, data.sources || []);
                 messageHistory.push({ role: 'user', content: text });
@@ -732,7 +735,7 @@
             } catch (error) {
                 console.error('Error sending message:', error);
                 removeTypingIndicator(typingId);
-                addMessage('assistant', 'Sorry, I encountered an error. Please try again.');
+                addMessage('assistant', error.message || 'Sorry, I encountered an error. Please try again.');
             }
         }
 

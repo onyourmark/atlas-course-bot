@@ -91,9 +91,12 @@ The student's message may be prefixed with [SOCRATIC MODE]. This controls how yo
     # Syllabus section
     syllabus_section = ""
     if syllabus.strip():
+        bounded_syllabus = syllabus[:30000]
+        if len(syllabus) > len(bounded_syllabus):
+            bounded_syllabus += "\n\n[Long syllabus shortened for this prompt.]"
         syllabus_section = (
             "\n\n## Course Syllabus\n"
-            + syllabus
+            + bounded_syllabus
         )
 
     return persona + behavioral_rules + concept_map_section + syllabus_section

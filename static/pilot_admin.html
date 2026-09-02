@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Administer the ATLAS Arlington faculty pilot.">
+    <title>Pilot administration | ATLAS</title>
+    <link rel="stylesheet" href="/static/pilot.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="/">
+                <span class="brand-mark">ATLAS</span>
+                <span class="brand-label">Pilot administration</span>
+            </a>
+            <div class="header-actions">
+                <a class="hidden" id="legacy-materials-link" href="/admin/upload">Legacy course materials</a>
+                <button class="button secondary small-button hidden" id="logout-button" type="button">Sign out</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="auth-page" id="login-view">
+        <section class="card">
+            <div class="card-body">
+                <p class="eyebrow">Administrator</p>
+                <h1>Manage the pilot cohort</h1>
+                <p class="lede">Sign in to invite up to five Arlington faculty members.</p>
+                <form id="login-form">
+                    <div class="field">
+                        <label for="admin-password">Administrator password</label>
+                        <input id="admin-password" type="password" autocomplete="current-password" required>
+                    </div>
+                    <button class="button full" type="submit">Sign in</button>
+                    <div class="status-message" id="login-status" role="alert"></div>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <main class="page hidden" id="dashboard-view">
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">Arlington faculty pilot</p>
+                <h1>Pilot cohort</h1>
+                <p class="lede">Create one-time invitation links and monitor available pilot places.</p>
+            </div>
+        </div>
+        <div class="status-message" id="page-status" role="status"></div>
+
+        <div class="grid three" id="metrics">
+            <div class="section-card metric"><div class="metric-value" id="active-count">0</div><div class="metric-label">Active professors</div></div>
+            <div class="section-card metric"><div class="metric-value" id="pending-count">0</div><div class="metric-label">Pending invitations</div></div>
+            <div class="section-card metric"><div class="metric-value" id="available-count">0</div><div class="metric-label">Places available</div></div>
+        </div>
+
+        <section class="section-card" style="margin-top: 22px;" aria-labelledby="invite-heading">
+            <div class="section-header">
+                <div>
+                    <h2 id="invite-heading">Invite a professor</h2>
+                    <p class="muted">Only @northeastern.edu addresses can join. An invitation reserves one of the five pilot places until it expires.</p>
+                </div>
+            </div>
+            <form id="invite-form">
+                <div class="grid three">
+                    <div class="field">
+                        <label for="invite-name">Professor name</label>
+                        <input id="invite-name" value="Bill Claster" maxlength="120" required>
+                    </div>
+                    <div class="field">
+                        <label for="invite-email">Northeastern email</label>
+                        <input id="invite-email" type="email" value="w.claster@northeastern.edu" required>
+                    </div>
+                    <div class="field">
+                        <label for="invite-expiry">Expires after</label>
+                        <select id="invite-expiry">
+                            <option value="24">24 hours</option>
+                            <option value="72" selected>72 hours</option>
+                            <option value="168">7 days</option>
+                        </select>
+                    </div>
+                </div>
+                <button class="button" type="submit">Create invitation link</button>
+            </form>
+            <div class="invite-output callout" id="invite-output">
+                <strong>Copy this link now.</strong> For security, ATLAS cannot show the same invitation link again.
+                <div class="copy-row" style="margin-top: 10px;">
+                    <input id="invite-link" readonly aria-label="Invitation link">
+                    <button class="button secondary" id="copy-button" type="button">Copy</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="section-card" style="margin-top: 22px;" aria-labelledby="professors-heading">
+            <h2 id="professors-heading">Professors</h2>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Email</th><th>Courses</th><th>API key</th><th>Joined</th></tr></thead>
+                    <tbody id="professor-rows"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="section-card" style="margin-top: 22px;" aria-labelledby="pending-heading">
+            <h2 id="pending-heading">Pending invitations</h2>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Name</th><th>Email</th><th>Expires</th></tr></thead>
+                    <tbody id="pending-rows"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const loginView = document.getElementById('login-view');
+        const dashboardView = document.getElementById('dashboard-view');
+        const logoutButton = document.getElementById('logout-button');
+        const legacyMaterialsLink = document.getElementById('legacy-materials-link');
+        const pageStatus = document.getElementById('page-status');
+
+        function showDashboard(show) {
+            loginView.classList.toggle('hidden', show);
+            dashboardView.classList.toggle('hidden', !show);
+            logoutButton.classList.toggle('hidden', !show);
+            legacyMaterialsLink.classList.toggle('hidden', !show);
+        }
+
+        function notify(message, kind = 'success') {
+            pageStatus.textContent = message;
+            pageStatus.className = 'status-message show ' + kind;
+        }
+
+        async function api(path, options = {}) {
+            const response = await fetch(path, options);
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (!response.ok) {
+                const error = new Error(data.detail || 'Request failed');
+                error.status = response.status;
+                throw error;
+            }
+            return data;
+        }
+
+        function tableCell(text) {
+            const cell = document.createElement('td');
+            cell.textContent = text;
+            return cell;
+        }
+
+        function formatDate(value) {
+            if (!value) return '';
+            return new Intl.DateTimeFormat(undefined, {dateStyle: 'medium', timeStyle: 'short'}).format(new Date(value));
+        }
+
+        function renderSummary(summary) {
+            document.getElementById('active-count').textContent = summary.active_professors;
+            document.getElementById('pending-count').textContent = summary.pending_invitations.length;
+            document.getElementById('available-count').textContent = Math.max(0, summary.max_professors - summary.active_professors - summary.pending_invitations.length);
+
+            const professors = document.getElementById('professor-rows');
+            professors.textContent = '';
+            summary.professors.forEach((professor) => {
+                const row = document.createElement('tr');
+                row.append(
+                    tableCell(professor.name),
+                    tableCell(professor.email),
+                    tableCell(String(professor.course_count)),
+                    tableCell(professor.api_key_last_four ? 'Connected ••••' + professor.api_key_last_four : 'Not connected'),
+                    tableCell(formatDate(professor.created_at))
+                );
+                professors.appendChild(row);
+            });
+            if (!summary.professors.length) {
+                const row = document.createElement('tr');
+                const cell = tableCell('No professors have joined yet.');
+                cell.colSpan = 5;
+                row.appendChild(cell);
+                professors.appendChild(row);
+            }
+
+            const pending = document.getElementById('pending-rows');
+            pending.textContent = '';
+            summary.pending_invitations.forEach((invitation) => {
+                const row = document.createElement('tr');
+                row.append(tableCell(invitation.name), tableCell(invitation.email), tableCell(formatDate(invitation.expires_at)));
+                pending.appendChild(row);
+            });
+            if (!summary.pending_invitations.length) {
+                const row = document.createElement('tr');
+                const cell = tableCell('No pending invitations.');
+                cell.colSpan = 3;
+                row.appendChild(cell);
+                pending.appendChild(row);
+            }
+        }
+
+        async function loadSummary() {
+            try {
+                const summary = await api('/api/pilot-admin/summary');
+                showDashboard(true);
+                renderSummary(summary);
+                return true;
+            } catch (error) {
+                if (error.status === 401) {
+                    showDashboard(false);
+                    return false;
+                }
+                showDashboard(false);
+                const box = document.getElementById('login-status');
+                box.textContent = error.message;
+                box.className = 'status-message show error';
+                return false;
+            }
+        }
+
+        document.getElementById('login-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const box = document.getElementById('login-status');
+            try {
+                await api('/api/pilot-admin/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({password: document.getElementById('admin-password').value})
+                });
+                document.getElementById('admin-password').value = '';
+                box.className = 'status-message';
+                await loadSummary();
+            } catch (error) {
+                box.textContent = error.message;
+                box.className = 'status-message show error';
+            }
+        });
+
+        document.getElementById('invite-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const button = event.currentTarget.querySelector('button[type="submit"]');
+            button.disabled = true;
+            try {
+                const invitation = await api('/api/pilot-admin/invitations', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        name: document.getElementById('invite-name').value,
+                        email: document.getElementById('invite-email').value,
+                        expires_hours: Number(document.getElementById('invite-expiry').value)
+                    })
+                });
+                document.getElementById('invite-link').value = invitation.join_url;
+                document.getElementById('invite-output').classList.add('show');
+                notify('Invitation created. Copy the one-time link and send it to the professor.');
+                event.currentTarget.reset();
+                await loadSummary();
+            } catch (error) { notify(error.message, 'error'); }
+            finally { button.disabled = false; }
+        });
+
+        document.getElementById('copy-button').addEventListener('click', async () => {
+            const input = document.getElementById('invite-link');
+            try {
+                await navigator.clipboard.writeText(input.value);
+                notify('Invitation link copied.');
+            } catch (_) {
+                input.select();
+                document.execCommand('copy');
+            }
+        });
+
+        logoutButton.addEventListener('click', async () => {
+            await fetch('/api/pilot-admin/logout', {method: 'POST'});
+            showDashboard(false);
+        });
+
+        loadSummary();
+    </script>
+</body>
+</html>

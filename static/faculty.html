@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Manage courses in the ATLAS Arlington faculty pilot.">
+    <title>Faculty dashboard | ATLAS</title>
+    <link rel="stylesheet" href="/static/pilot.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="/">
+                <span class="brand-mark">ATLAS</span>
+                <span class="brand-label">Faculty dashboard</span>
+            </a>
+            <div class="header-actions">
+                <span class="header-email" id="header-email"></span>
+                <button class="button secondary small-button" id="logout-button" type="button">Sign out</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="page">
+        <div class="page-heading">
+            <div>
+                <p class="eyebrow">Arlington faculty pilot</p>
+                <h1 id="welcome-heading">Your ATLAS courses</h1>
+                <p class="lede">Create a course, add its syllabus and lecture transcripts, then publish a private student link.</p>
+            </div>
+        </div>
+        <div class="status-message" id="page-status" role="status"></div>
+
+        <div class="grid two">
+            <section class="section-card" aria-labelledby="api-key-heading">
+                <div class="section-header">
+                    <div>
+                        <p class="eyebrow">Step 1</p>
+                        <h2 id="api-key-heading">Connect your Anthropic key</h2>
+                    </div>
+                    <span class="badge draft" id="api-key-badge">Not connected</span>
+                </div>
+                <p class="muted small">Your key pays for questions in your courses. ATLAS encrypts it before storage and never displays it again. You can create a key in the <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.</p>
+                <form id="api-key-form">
+                    <div class="field">
+                        <label for="api-key">Anthropic API key</label>
+                        <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." required>
+                    </div>
+                    <div class="course-actions">
+                        <button class="button" type="submit">Save encrypted key</button>
+                        <button class="button danger hidden" id="remove-key-button" type="button">Remove key</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="section-card" aria-labelledby="create-heading">
+                <div class="section-header">
+                    <div>
+                        <p class="eyebrow">Step 2</p>
+                        <h2 id="create-heading">Create a course</h2>
+                    </div>
+                </div>
+                <form id="course-form">
+                    <div class="grid two">
+                        <div class="field">
+                            <label for="course-code">Course code</label>
+                            <input id="course-code" placeholder="INFO 6105" maxlength="40" required>
+                        </div>
+                        <div class="field">
+                            <label for="course-term">Term</label>
+                            <input id="course-term" placeholder="Fall 2026" maxlength="80" required>
+                        </div>
+                    </div>
+                    <div class="field">
+                        <label for="course-name">Course name</label>
+                        <input id="course-name" placeholder="Data Science Engineering Methods" maxlength="160" required>
+                    </div>
+                    <div class="grid two">
+                        <div class="field">
+                            <label for="course-section">Section <span class="muted small">(optional)</span></label>
+                            <input id="course-section" maxlength="80">
+                        </div>
+                        <div class="field">
+                            <label for="question-limit">Monthly question limit</label>
+                            <input id="question-limit" type="number" value="500" min="1" max="5000" required>
+                        </div>
+                    </div>
+                    <button class="button" type="submit">Create draft course</button>
+                </form>
+            </section>
+        </div>
+
+        <section style="margin-top: 34px;" aria-labelledby="courses-heading">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Step 3</p>
+                    <h2 id="courses-heading">Add materials and publish</h2>
+                    <p class="muted">Upload a syllabus and lecture transcripts. Published pilot courses stay off the public course selector and are available through their private link.</p>
+                </div>
+            </div>
+            <div id="courses" class="course-list">
+                <div class="empty">Loading your courses...</div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        let professor = null;
+        const pageStatus = document.getElementById('page-status');
+
+        function notify(message, kind = 'success') {
+            pageStatus.textContent = message;
+            pageStatus.className = 'status-message show ' + kind;
+            pageStatus.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+        }
+
+        async function api(path, options = {}) {
+            const response = await fetch(path, options);
+            let data = {};
+            try { data = await response.json(); } catch (_) {}
+            if (response.status === 401) {
+                window.location.assign('/faculty/login');
+                throw new Error('Sign in required');
+            }
+            if (!response.ok) throw new Error(data.detail || 'Request failed');
+            return data;
+        }
+
+        function element(tag, className, text) {
+            const node = document.createElement(tag);
+            if (className) node.className = className;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        function renderProfessor() {
+            document.getElementById('header-email').textContent = professor.email;
+            document.getElementById('welcome-heading').textContent = 'Welcome, ' + professor.name;
+            const badge = document.getElementById('api-key-badge');
+            const remove = document.getElementById('remove-key-button');
+            if (professor.has_api_key) {
+                badge.textContent = 'Connected ••••' + professor.api_key_last_four;
+                badge.className = 'badge published';
+                remove.classList.remove('hidden');
+                document.getElementById('api-key').placeholder = 'Enter a new key to replace the saved key';
+            } else {
+                badge.textContent = 'Not connected';
+                badge.className = 'badge draft';
+                remove.classList.add('hidden');
+                document.getElementById('api-key').placeholder = 'sk-ant-...';
+            }
+        }
+
+        function documentRow(course, document) {
+            const row = element('li', 'document-item');
+            const description = element('div', 'document-name');
+            const typeName = document.document_type === 'syllabus' ? 'Syllabus' : 'Transcript';
+            description.textContent = typeName + ': ' + document.filename + ' (' + formatBytes(document.byte_size) + ')';
+            const remove = element('button', 'button danger small-button', 'Delete');
+            remove.type = 'button';
+            remove.addEventListener('click', async () => {
+                if (!window.confirm('Delete ' + document.filename + '?')) return;
+                try {
+                    await api('/api/faculty/courses/' + encodeURIComponent(course.id) + '/documents/' + encodeURIComponent(document.id), {method: 'DELETE'});
+                    notify('Document deleted.');
+                    await loadCourses();
+                } catch (error) { notify(error.message, 'error'); }
+            });
+            row.append(description, remove);
+            return row;
+        }
+
+        function courseCard(course) {
+            const card = element('article', 'course-card');
+            const top = element('div', 'course-top');
+            const heading = element('div');
+            heading.append(
+                element('div', 'course-code', course.code),
+                element('h3', 'course-title', course.name),
+                element('div', 'course-meta', [course.term, course.section, course.campus].filter(Boolean).join(' · '))
+            );
+            top.append(heading, element('span', 'badge ' + course.status, course.status));
+            card.appendChild(top);
+
+            const usage = element('div', 'usage-row');
+            const totalTokens = course.usage.input_tokens + course.usage.output_tokens;
+            usage.append(
+                element('span', '', course.usage.questions + ' of ' + course.monthly_question_limit + ' questions used this month'),
+                element('span', '', course.remaining_questions + ' remaining'),
+                element('span', '', course.concept_count + ' map concepts'),
+                element('span', '', totalTokens.toLocaleString() + ' API tokens this month')
+            );
+            card.appendChild(usage);
+
+            const actions = element('div', 'course-actions');
+            const statusButton = element(
+                'button',
+                'button ' + (course.status === 'published' ? 'secondary' : ''),
+                course.status === 'published' ? 'Unpublish course' : 'Publish course'
+            );
+            statusButton.type = 'button';
+            statusButton.addEventListener('click', async () => {
+                statusButton.disabled = true;
+                try {
+                    const status = course.status === 'published' ? 'draft' : 'published';
+                    await api('/api/faculty/courses/' + encodeURIComponent(course.id) + '/status', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({status: status})
+                    });
+                    notify(status === 'published' ? 'Course published. Its private student link is ready.' : 'Course unpublished.');
+                    await loadCourses();
+                } catch (error) {
+                    notify(error.message, 'error');
+                    statusButton.disabled = false;
+                }
+            });
+            actions.appendChild(statusButton);
+
+            const mapButton = element(
+                'button',
+                'button secondary',
+                course.concept_count ? 'Regenerate concept map' : 'Generate concept map'
+            );
+            mapButton.type = 'button';
+            mapButton.title = 'Uses your saved Anthropic API key for one setup request';
+            mapButton.addEventListener('click', async () => {
+                const action = course.concept_count ? 'regenerate' : 'generate';
+                if (!window.confirm('This will ' + action + ' the concept map with one paid Anthropic API request using your saved key. Continue?')) return;
+                mapButton.disabled = true;
+                mapButton.textContent = 'Generating...';
+                try {
+                    const result = await api('/api/faculty/courses/' + encodeURIComponent(course.id) + '/concept-map', {method: 'POST'});
+                    notify('Concept map generated with ' + result.concept_count + ' concepts.');
+                    await loadCourses();
+                } catch (error) {
+                    notify(error.message, 'error');
+                    mapButton.disabled = false;
+                    mapButton.textContent = course.concept_count ? 'Regenerate concept map' : 'Generate concept map';
+                }
+            });
+            actions.appendChild(mapButton);
+
+            if (course.student_path) {
+                const open = element('a', 'button secondary', 'Open student view');
+                open.href = course.student_path;
+                open.target = '_blank';
+                open.rel = 'noopener';
+                const copy = element('button', 'button secondary', 'Copy student link');
+                copy.type = 'button';
+                copy.addEventListener('click', async () => {
+                    try {
+                        await navigator.clipboard.writeText(window.location.origin + course.student_path);
+                        notify('Student link copied.');
+                    } catch (_) {
+                        window.prompt('Copy this student link:', window.location.origin + course.student_path);
+                    }
+                });
+                actions.append(open, copy);
+            }
+            card.appendChild(actions);
+
+            const documents = element('div', 'document-area');
+            documents.appendChild(element('h3', '', 'Course materials'));
+            const uploadForm = element('form', 'document-upload');
+
+            const typeField = element('div', 'field');
+            const typeLabel = element('label', '', 'Material type');
+            const typeSelect = element('select');
+            const syllabusOption = element('option', '', 'Syllabus');
+            syllabusOption.value = 'syllabus';
+            const transcriptOption = element('option', '', 'Lecture transcript');
+            transcriptOption.value = 'transcript';
+            typeSelect.append(syllabusOption, transcriptOption);
+            typeField.append(typeLabel, typeSelect);
+
+            const fileField = element('div', 'field');
+            const fileLabel = element('label', '', 'Files');
+            const fileInput = element('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.docx,.md,.pdf,.pptx,.txt';
+            fileInput.multiple = true;
+            fileInput.required = true;
+            fileField.append(fileLabel, fileInput);
+
+            const uploadButton = element('button', 'button', 'Upload');
+            uploadButton.type = 'submit';
+            uploadForm.append(typeField, fileField, uploadButton);
+            uploadForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                if (typeSelect.value === 'syllabus' && fileInput.files.length !== 1) {
+                    notify('Upload one syllabus at a time.', 'error');
+                    return;
+                }
+                const formData = new FormData();
+                formData.append('document_type', typeSelect.value);
+                Array.from(fileInput.files).forEach((file) => formData.append('files', file));
+                uploadButton.disabled = true;
+                uploadButton.textContent = 'Uploading...';
+                try {
+                    await api('/api/faculty/courses/' + encodeURIComponent(course.id) + '/documents', {
+                        method: 'POST', body: formData
+                    });
+                    notify('Course materials uploaded and indexed. Generate or regenerate the concept map when your materials are ready.');
+                    await loadCourses();
+                } catch (error) {
+                    notify(error.message, 'error');
+                    uploadButton.disabled = false;
+                    uploadButton.textContent = 'Upload';
+                }
+            });
+            documents.appendChild(uploadForm);
+
+            if (course.documents.length) {
+                const list = element('ul', 'document-list');
+                course.documents.forEach((document) => list.appendChild(documentRow(course, document)));
+                documents.appendChild(list);
+            } else {
+                documents.appendChild(element('p', 'muted small', 'No materials uploaded yet.'));
+            }
+            card.appendChild(documents);
+            return card;
+        }
+
+        async function loadCourses() {
+            const data = await api('/api/faculty/courses');
+            const container = document.getElementById('courses');
+            container.textContent = '';
+            if (!data.courses.length) {
+                container.appendChild(element('div', 'empty', 'No courses yet. Create your first draft above.'));
+                return;
+            }
+            data.courses.forEach((course) => container.appendChild(courseCard(course)));
+        }
+
+        document.getElementById('api-key-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const input = document.getElementById('api-key');
+            try {
+                const data = await api('/api/faculty/api-key', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({api_key: input.value})
+                });
+                professor = data.professor;
+                input.value = '';
+                renderProfessor();
+                notify('Your API key was encrypted and saved.');
+            } catch (error) { notify(error.message, 'error'); }
+        });
+
+        document.getElementById('remove-key-button').addEventListener('click', async () => {
+            if (!window.confirm('Remove your saved API key? Published courses must be unpublished first.')) return;
+            try {
+                const data = await api('/api/faculty/api-key', {method: 'DELETE'});
+                professor = data.professor;
+                renderProfessor();
+                notify('API key removed.');
+            } catch (error) { notify(error.message, 'error'); }
+        });
+
+        document.getElementById('course-form').addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const button = event.currentTarget.querySelector('button[type="submit"]');
+            button.disabled = true;
+            try {
+                await api('/api/faculty/courses', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        code: document.getElementById('course-code').value,
+                        name: document.getElementById('course-name').value,
+                        term: document.getElementById('course-term').value,
+                        section: document.getElementById('course-section').value,
+                        campus: 'Arlington',
+                        monthly_question_limit: Number(document.getElementById('question-limit').value)
+                    })
+                });
+                event.currentTarget.reset();
+                document.getElementById('question-limit').value = '500';
+                notify('Draft course created. Add its syllabus and lecture transcripts below.');
+                await loadCourses();
+            } catch (error) { notify(error.message, 'error'); }
+            finally { button.disabled = false; }
+        });
+
+        document.getElementById('logout-button').addEventListener('click', async () => {
+            await fetch('/api/faculty/logout', {method: 'POST'});
+            window.location.assign('/faculty/login');
+        });
+
+        async function initialize() {
+            try {
+                const data = await api('/api/faculty/me');
+                professor = data.professor;
+                renderProfessor();
+                await loadCourses();
+            } catch (error) {
+                if (error.message !== 'Sign in required') notify(error.message, 'error');
+            }
+        }
+
+        initialize();
+    </script>
+</body>
+</html>

@@ -201,6 +201,16 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
     border-radius: 10px;
 }
 
+.spaced-section { margin-top: 24px; }
+.key-grid { margin-top: 18px; }
+.key-panel {
+    padding: 18px;
+    background: var(--wash);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+}
+.section-header.compact { align-items: center; margin-bottom: 10px; }
+
 .section-header {
     display: flex;
     align-items: start;
@@ -241,6 +251,22 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
 .course-meta { color: var(--muted); font-size: 0.87rem; }
 .course-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
 
+.model-settings {
+    margin-top: 18px;
+    padding: 16px;
+    background: var(--wash);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+.model-form {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.4fr) auto;
+    gap: 10px;
+    align-items: end;
+}
+.model-form .field { margin: 0; }
+.model-note { margin: 10px 0 5px; }
+
 .usage-row {
     display: flex;
     justify-content: space-between;
@@ -250,6 +276,15 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
     border-top: 1px solid var(--line);
     color: var(--muted);
     font-size: 0.84rem;
+}
+
+.usage-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 0.82rem;
 }
 
 .document-area { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
@@ -281,6 +316,7 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
     .page-heading, .section-header, .course-top { align-items: start; flex-direction: column; }
     .grid.two, .grid.three { grid-template-columns: 1fr; }
     .document-upload { grid-template-columns: 1fr; }
+    .model-form { grid-template-columns: 1fr; }
     .usage-row { flex-direction: column; }
     .card-body, .section-card, .course-card { padding: 20px; }
 }

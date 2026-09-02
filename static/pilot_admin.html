@@ -96,7 +96,7 @@
             <h2 id="professors-heading">Professors</h2>
             <div class="table-wrap">
                 <table class="data-table">
-                    <thead><tr><th>Name</th><th>Email</th><th>Courses</th><th>API key</th><th>Joined</th></tr></thead>
+                    <thead><tr><th>Name</th><th>Email</th><th>Courses</th><th>API keys</th><th>Joined</th></tr></thead>
                     <tbody id="professor-rows"></tbody>
                 </table>
             </div>
@@ -168,7 +168,10 @@
                     tableCell(professor.name),
                     tableCell(professor.email),
                     tableCell(String(professor.course_count)),
-                    tableCell(professor.api_key_last_four ? 'Connected ••••' + professor.api_key_last_four : 'Not connected'),
+                    tableCell([
+                        professor.api_key_last_four ? 'Anthropic ••••' + professor.api_key_last_four : 'Anthropic not connected',
+                        professor.openai_api_key_last_four ? 'OpenAI ••••' + professor.openai_api_key_last_four : 'OpenAI not connected'
+                    ].join(' | ')),
                     tableCell(formatDate(professor.created_at))
                 );
                 professors.appendChild(row);

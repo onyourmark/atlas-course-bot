@@ -31,64 +31,95 @@
         </div>
         <div class="status-message" id="page-status" role="status"></div>
 
-        <div class="grid two">
-            <section class="section-card" aria-labelledby="api-key-heading">
-                <div class="section-header">
-                    <div>
-                        <p class="eyebrow">Step 1</p>
-                        <h2 id="api-key-heading">Connect your Anthropic key</h2>
-                    </div>
-                    <span class="badge draft" id="api-key-badge">Not connected</span>
+        <section class="section-card" aria-labelledby="api-key-heading">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Step 1</p>
+                    <h2 id="api-key-heading">Connect your API keys</h2>
                 </div>
-                <p class="muted small">Your key pays for questions in your courses. ATLAS encrypts it before storage and never displays it again. You can create a key in the <a href="https://console.anthropic.com/" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.</p>
-                <form id="api-key-form">
+            </div>
+            <p class="muted small">Each provider bills your own account. ATLAS encrypts each key before storage and never displays it again. You only need a key for a provider you want to use.</p>
+            <div class="grid two key-grid">
+                <form class="key-panel provider-key-form" data-provider="anthropic">
+                    <div class="section-header compact">
+                        <h3>Anthropic (Claude models)</h3>
+                        <span class="badge draft" id="anthropic-key-badge">Not connected</span>
+                    </div>
+                    <p class="muted small">Create a key in the <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Anthropic Console</a>.</p>
                     <div class="field">
-                        <label for="api-key">Anthropic API key</label>
-                        <input id="api-key" type="password" autocomplete="off" placeholder="sk-ant-..." required>
+                        <label for="anthropic-api-key">Anthropic API key</label>
+                        <input id="anthropic-api-key" type="password" autocomplete="off" placeholder="sk-ant-..." required>
                     </div>
                     <div class="course-actions">
                         <button class="button" type="submit">Save encrypted key</button>
-                        <button class="button danger hidden" id="remove-key-button" type="button">Remove key</button>
+                        <button class="button danger hidden remove-provider-key" data-provider="anthropic" id="remove-anthropic-key" type="button">Remove key</button>
                     </div>
                 </form>
-            </section>
 
-            <section class="section-card" aria-labelledby="create-heading">
-                <div class="section-header">
-                    <div>
-                        <p class="eyebrow">Step 2</p>
-                        <h2 id="create-heading">Create a course</h2>
+                <form class="key-panel provider-key-form" data-provider="openai">
+                    <div class="section-header compact">
+                        <h3>OpenAI (ChatGPT models)</h3>
+                        <span class="badge draft" id="openai-key-badge">Not connected</span>
                     </div>
+                    <p class="muted small">Create a key on the <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">OpenAI API keys page</a>. A ChatGPT subscription does not include API use.</p>
+                    <div class="field">
+                        <label for="openai-api-key">OpenAI API key</label>
+                        <input id="openai-api-key" type="password" autocomplete="off" placeholder="sk-..." required>
+                    </div>
+                    <div class="course-actions">
+                        <button class="button" type="submit">Save encrypted key</button>
+                        <button class="button danger hidden remove-provider-key" data-provider="openai" id="remove-openai-key" type="button">Remove key</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="section-card spaced-section" aria-labelledby="create-heading">
+            <div class="section-header">
+                <div>
+                    <p class="eyebrow">Step 2</p>
+                    <h2 id="create-heading">Create a course</h2>
                 </div>
-                <form id="course-form">
-                    <div class="grid two">
-                        <div class="field">
-                            <label for="course-code">Course code</label>
-                            <input id="course-code" placeholder="INFO 6105" maxlength="40" required>
-                        </div>
-                        <div class="field">
-                            <label for="course-term">Term</label>
-                            <input id="course-term" placeholder="Fall 2026" maxlength="80" required>
-                        </div>
+            </div>
+            <form id="course-form">
+                <div class="grid two">
+                    <div class="field">
+                        <label for="course-code">Course code</label>
+                        <input id="course-code" placeholder="INFO 6105" maxlength="40" required>
                     </div>
                     <div class="field">
-                        <label for="course-name">Course name</label>
-                        <input id="course-name" placeholder="Data Science Engineering Methods" maxlength="160" required>
+                        <label for="course-term">Term</label>
+                        <input id="course-term" placeholder="Fall 2026" maxlength="80" required>
                     </div>
-                    <div class="grid two">
-                        <div class="field">
-                            <label for="course-section">Section <span class="muted small">(optional)</span></label>
-                            <input id="course-section" maxlength="80">
-                        </div>
-                        <div class="field">
-                            <label for="question-limit">Monthly question limit</label>
-                            <input id="question-limit" type="number" value="500" min="1" max="5000" required>
-                        </div>
+                </div>
+                <div class="field">
+                    <label for="course-name">Course name</label>
+                    <input id="course-name" placeholder="Data Science Engineering Methods" maxlength="160" required>
+                </div>
+                <div class="grid two">
+                    <div class="field">
+                        <label for="course-section">Section <span class="muted small">(optional)</span></label>
+                        <input id="course-section" maxlength="80">
                     </div>
-                    <button class="button" type="submit">Create draft course</button>
-                </form>
-            </section>
-        </div>
+                    <div class="field">
+                        <label for="question-limit">Monthly question limit</label>
+                        <input id="question-limit" type="number" value="500" min="1" max="5000" required>
+                    </div>
+                </div>
+                <div class="grid two">
+                    <div class="field">
+                        <label for="course-provider">AI provider</label>
+                        <select id="course-provider" required></select>
+                    </div>
+                    <div class="field">
+                        <label for="course-model">Model</label>
+                        <select id="course-model" required></select>
+                    </div>
+                </div>
+                <p class="muted small" id="course-model-description"></p>
+                <button class="button" type="submit">Create draft course</button>
+            </form>
+        </section>
 
         <section style="margin-top: 34px;" aria-labelledby="courses-heading">
             <div class="section-header">
@@ -106,6 +137,7 @@
 
     <script>
         let professor = null;
+        let modelCatalog = [];
         const pageStatus = document.getElementById('page-status');
 
         function notify(message, kind = 'success') {
@@ -139,22 +171,82 @@
             return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
         }
 
+        function providerDetails(provider) {
+            return modelCatalog.find((item) => item.id === provider);
+        }
+
+        function keyState(provider) {
+            return professor.api_keys[provider];
+        }
+
+        function fillProviderSelect(select, selectedProvider) {
+            select.textContent = '';
+            modelCatalog.forEach((provider) => {
+                const option = element('option', '', provider.name);
+                option.value = provider.id;
+                option.disabled = !keyState(provider.id).has_key && provider.id !== selectedProvider;
+                select.appendChild(option);
+            });
+            select.value = selectedProvider;
+        }
+
+        function fillModelSelect(select, provider, selectedModel) {
+            const details = providerDetails(provider);
+            select.textContent = '';
+            details.models.forEach((model) => {
+                const option = element('option', '', model.name + ' | ' + model.cost);
+                option.value = model.id;
+                select.appendChild(option);
+            });
+            select.value = details.models.some((model) => model.id === selectedModel)
+                ? selectedModel
+                : details.default_model;
+        }
+
+        function modelDescription(provider, model) {
+            const details = providerDetails(provider);
+            const choice = details.models.find((item) => item.id === model);
+            return choice ? choice.description : '';
+        }
+
+        function modelLabel(provider, model) {
+            const details = providerDetails(provider);
+            const choice = details && details.models.find((item) => item.id === model);
+            return choice ? choice.name : model;
+        }
+
+        function setupCourseCreateSelectors() {
+            const providerSelect = document.getElementById('course-provider');
+            const modelSelect = document.getElementById('course-model');
+            const available = modelCatalog.find((item) => keyState(item.id).has_key);
+            const selectedProvider = available ? available.id : 'anthropic';
+            fillProviderSelect(providerSelect, selectedProvider);
+            fillModelSelect(modelSelect, selectedProvider, providerDetails(selectedProvider).default_model);
+            document.getElementById('course-model-description').textContent =
+                modelDescription(selectedProvider, modelSelect.value);
+        }
+
         function renderProfessor() {
             document.getElementById('header-email').textContent = professor.email;
             document.getElementById('welcome-heading').textContent = 'Welcome, ' + professor.name;
-            const badge = document.getElementById('api-key-badge');
-            const remove = document.getElementById('remove-key-button');
-            if (professor.has_api_key) {
-                badge.textContent = 'Connected ••••' + professor.api_key_last_four;
-                badge.className = 'badge published';
-                remove.classList.remove('hidden');
-                document.getElementById('api-key').placeholder = 'Enter a new key to replace the saved key';
-            } else {
-                badge.textContent = 'Not connected';
-                badge.className = 'badge draft';
-                remove.classList.add('hidden');
-                document.getElementById('api-key').placeholder = 'sk-ant-...';
-            }
+            ['anthropic', 'openai'].forEach((provider) => {
+                const state = keyState(provider);
+                const badge = document.getElementById(provider + '-key-badge');
+                const remove = document.getElementById('remove-' + provider + '-key');
+                const input = document.getElementById(provider + '-api-key');
+                if (state.has_key) {
+                    badge.textContent = 'Connected ••••' + state.last_four;
+                    badge.className = 'badge published';
+                    remove.classList.remove('hidden');
+                    input.placeholder = 'Enter a new key to replace the saved key';
+                } else {
+                    badge.textContent = 'Not connected';
+                    badge.className = 'badge draft';
+                    remove.classList.add('hidden');
+                    input.placeholder = provider === 'anthropic' ? 'sk-ant-...' : 'sk-...';
+                }
+            });
+            setupCourseCreateSelectors();
         }
 
         function documentRow(course, document) {
@@ -188,6 +280,67 @@
             top.append(heading, element('span', 'badge ' + course.status, course.status));
             card.appendChild(top);
 
+            const modelArea = element('div', 'model-settings');
+            modelArea.appendChild(element(
+                'h3', '', 'AI provider and model'
+            ));
+            modelArea.appendChild(element(
+                'p', 'muted small',
+                'Current choice: ' + course.provider_name + ', ' + course.model_name + '.'
+            ));
+            const modelForm = element('form', 'model-form');
+            const providerField = element('div', 'field');
+            const providerLabel = element('label', '', 'Provider');
+            const providerSelect = element('select');
+            fillProviderSelect(providerSelect, course.provider);
+            providerField.append(providerLabel, providerSelect);
+
+            const modelField = element('div', 'field');
+            const modelSelectLabel = element('label', '', 'Model');
+            const modelSelect = element('select');
+            fillModelSelect(modelSelect, course.provider, course.model);
+            modelField.append(modelSelectLabel, modelSelect);
+
+            const description = element(
+                'p', 'muted small model-note', modelDescription(course.provider, course.model)
+            );
+            const saveModel = element('button', 'button', 'Save model choice');
+            saveModel.type = 'submit';
+            modelForm.append(providerField, modelField, saveModel);
+            providerSelect.addEventListener('change', () => {
+                const provider = providerSelect.value;
+                fillModelSelect(modelSelect, provider, providerDetails(provider).default_model);
+                description.textContent = modelDescription(provider, modelSelect.value);
+            });
+            modelSelect.addEventListener('change', () => {
+                description.textContent = modelDescription(providerSelect.value, modelSelect.value);
+            });
+            modelForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                saveModel.disabled = true;
+                try {
+                    await api('/api/faculty/courses/' + encodeURIComponent(course.id) + '/model', {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            provider: providerSelect.value,
+                            model: modelSelect.value
+                        })
+                    });
+                    notify('Model choice saved. It will apply to the next student question. The existing concept map was not changed.');
+                    await loadCourses();
+                } catch (error) {
+                    notify(error.message, 'error');
+                    saveModel.disabled = false;
+                }
+            });
+            modelArea.append(modelForm, description);
+            modelArea.appendChild(element(
+                'p', 'muted small',
+                'You can change this while the course is running. A question already being answered will finish with the previous model.'
+            ));
+            card.appendChild(modelArea);
+
             const usage = element('div', 'usage-row');
             const totalTokens = course.usage.input_tokens + course.usage.output_tokens;
             usage.append(
@@ -197,6 +350,19 @@
                 element('span', '', totalTokens.toLocaleString() + ' API tokens this month')
             );
             card.appendChild(usage);
+            if (course.usage.by_model.length) {
+                const breakdown = element('div', 'usage-breakdown');
+                breakdown.appendChild(element('strong', '', 'This month by model:'));
+                course.usage.by_model.forEach((item) => {
+                    const tokens = item.input_tokens + item.output_tokens;
+                    breakdown.appendChild(element(
+                        'span', '',
+                        modelLabel(item.provider, item.model) + ': ' + item.questions +
+                        ' questions, ' + tokens.toLocaleString() + ' tokens'
+                    ));
+                });
+                card.appendChild(breakdown);
+            }
 
             const actions = element('div', 'course-actions');
             const statusButton = element(
@@ -229,10 +395,10 @@
                 course.concept_count ? 'Regenerate concept map' : 'Generate concept map'
             );
             mapButton.type = 'button';
-            mapButton.title = 'Uses your saved Anthropic API key for one setup request';
+            mapButton.title = 'Uses the provider and model selected for this course';
             mapButton.addEventListener('click', async () => {
                 const action = course.concept_count ? 'regenerate' : 'generate';
-                if (!window.confirm('This will ' + action + ' the concept map with one paid Anthropic API request using your saved key. Continue?')) return;
+                if (!window.confirm('This will ' + action + ' the concept map with one paid ' + course.provider_name + ' request using ' + course.model_name + '. Continue?')) return;
                 mapButton.disabled = true;
                 mapButton.textContent = 'Generating...';
                 try {
@@ -339,30 +505,51 @@
             data.courses.forEach((course) => container.appendChild(courseCard(course)));
         }
 
-        document.getElementById('api-key-form').addEventListener('submit', async (event) => {
-            event.preventDefault();
-            const input = document.getElementById('api-key');
-            try {
-                const data = await api('/api/faculty/api-key', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({api_key: input.value})
-                });
-                professor = data.professor;
-                input.value = '';
-                renderProfessor();
-                notify('Your API key was encrypted and saved.');
-            } catch (error) { notify(error.message, 'error'); }
+        document.querySelectorAll('.provider-key-form').forEach((form) => {
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const provider = form.dataset.provider;
+                const input = document.getElementById(provider + '-api-key');
+                try {
+                    const data = await api('/api/faculty/api-keys/' + provider, {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({api_key: input.value})
+                    });
+                    professor = data.professor;
+                    input.value = '';
+                    renderProfessor();
+                    notify((provider === 'anthropic' ? 'Anthropic' : 'OpenAI') + ' API key encrypted and saved.');
+                } catch (error) { notify(error.message, 'error'); }
+            });
         });
 
-        document.getElementById('remove-key-button').addEventListener('click', async () => {
-            if (!window.confirm('Remove your saved API key? Published courses must be unpublished first.')) return;
-            try {
-                const data = await api('/api/faculty/api-key', {method: 'DELETE'});
-                professor = data.professor;
-                renderProfessor();
-                notify('API key removed.');
-            } catch (error) { notify(error.message, 'error'); }
+        document.querySelectorAll('.remove-provider-key').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const provider = button.dataset.provider;
+                const providerName = provider === 'anthropic' ? 'Anthropic' : 'OpenAI';
+                if (!window.confirm('Remove your saved ' + providerName + ' API key?')) return;
+                try {
+                    const data = await api('/api/faculty/api-keys/' + provider, {method: 'DELETE'});
+                    professor = data.professor;
+                    renderProfessor();
+                    notify(providerName + ' API key removed.');
+                    await loadCourses();
+                } catch (error) { notify(error.message, 'error'); }
+            });
+        });
+
+        document.getElementById('course-provider').addEventListener('change', (event) => {
+            const modelSelect = document.getElementById('course-model');
+            const provider = event.target.value;
+            fillModelSelect(modelSelect, provider, providerDetails(provider).default_model);
+            document.getElementById('course-model-description').textContent =
+                modelDescription(provider, modelSelect.value);
+        });
+
+        document.getElementById('course-model').addEventListener('change', (event) => {
+            document.getElementById('course-model-description').textContent =
+                modelDescription(document.getElementById('course-provider').value, event.target.value);
         });
 
         document.getElementById('course-form').addEventListener('submit', async (event) => {
@@ -379,11 +566,14 @@
                         term: document.getElementById('course-term').value,
                         section: document.getElementById('course-section').value,
                         campus: 'Arlington',
-                        monthly_question_limit: Number(document.getElementById('question-limit').value)
+                        monthly_question_limit: Number(document.getElementById('question-limit').value),
+                        provider: document.getElementById('course-provider').value,
+                        model: document.getElementById('course-model').value
                     })
                 });
                 event.currentTarget.reset();
                 document.getElementById('question-limit').value = '500';
+                setupCourseCreateSelectors();
                 notify('Draft course created. Add its syllabus and lecture transcripts below.');
                 await loadCourses();
             } catch (error) { notify(error.message, 'error'); }
@@ -399,6 +589,7 @@
             try {
                 const data = await api('/api/faculty/me');
                 professor = data.professor;
+                modelCatalog = data.model_catalog;
                 renderProfessor();
                 await loadCourses();
             } catch (error) {

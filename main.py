@@ -7,6 +7,7 @@ Built with FastAPI, Claude API, and Anthropic SDK.
 
 import json
 import os
+import re
 import shutil
 import uuid
 from contextlib import asynccontextmanager
@@ -29,22 +30,24 @@ from knowledge import (
     load_syllabus,
     load_transcripts,
     load_concept_map,
-    build_transcript_chunks,
-    search_chunks,
+    build_course_chunks,
+    extract_search_terms,
+    format_source_context,
+    search_chunk_matches,
 )
 from prompts.system_prompt import build_system_prompt
 
 
 # -- Globals --
 
-CLIENT = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+CLIENT: Optional[anthropic.Anthropic] = None
 MODEL = "claude-sonnet-4-6"
 
 # Multi-course data structures (keyed by course_id)
 COURSES: Dict[str, Dict] = {}
 SYSTEM_PROMPTS: Dict[str, str] = {}
 CONCEPT_MAPS: Dict[str, Dict] = {}
-TRANSCRIPT_CHUNKS: Dict[str, List[Dict]] = {}
+COURSE_SOURCE_CHUNKS: Dict[str, List[Dict]] = {}
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -52,6 +55,9 @@ KNOWLEDGE_DIR = BASE_DIR / "knowledge"
 DATA_DIR = BASE_DIR / "data"
 STATIC_DIR = BASE_DIR / "static"
 FEEDBACK_FILE = DATA_DIR / "feedback.json"
+NO_MATERIALS_RESPONSE = (
+    "The course materials I searched do not contain an answer to that question."
+)
 
 
 # -- Pydantic Models --
@@ -108,10 +114,10 @@ async def lifespan(app: FastAPI):
         # Build concept map section (just for system prompt)
         CONCEPT_MAPS[course_id] = concept_map
 
-        # Build transcript chunks
-        chunks = build_transcript_chunks(transcripts)
-        TRANSCRIPT_CHUNKS[course_id] = chunks
-        print(f"  - {len(chunks)} transcript chunks built")
+        # Build searchable chunks from the syllabus and lecture transcripts
+        chunks = build_course_chunks(syllabus, transcripts)
+        COURSE_SOURCE_CHUNKS[course_id] = chunks
+        print(f"  - {len(chunks)} course source chunks built")
 
         # Build system prompt
         system_prompt = build_system_prompt(config, concept_map, syllabus)
@@ -154,6 +160,14 @@ def _validate_course(course_id: str) -> Dict:
     return COURSES[course_id]
 
 
+def _get_client() -> anthropic.Anthropic:
+    """Create the Anthropic client when the first chat request needs it."""
+    global CLIENT
+    if CLIENT is None:
+        CLIENT = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+    return CLIENT
+
+
 def _append_feedback(feedback: Dict) -> None:
     """
     Thread-safe append of feedback to feedback.json.
@@ -186,6 +200,35 @@ def _read_feedback() -> List[Dict]:
     except Exception as e:
         print(f"Error reading feedback: {e}")
         return []
+
+
+def _build_retrieval_query(message: str, history: Optional[List[ChatMessage]]) -> str:
+    """Use a prior student question when the current message is a short follow-up."""
+    current_terms = extract_search_terms(message)
+    normalized_message = re.sub(
+        r"\[[A-Z ]+MODE\]", " ", message, flags=re.IGNORECASE
+    ).strip().lower().rstrip(".!?")
+    non_content_messages = {
+        "bye", "goodbye", "got it", "hello", "hey", "hi", "ok", "okay",
+        "thank you", "thanks",
+    }
+    if not current_terms and normalized_message in non_content_messages:
+        return message
+
+    refers_back = bool(
+        re.search(r"\b(this|that|it|its|these|those)\b", message, flags=re.IGNORECASE)
+    )
+    needs_prior_question = not current_terms or (refers_back and len(current_terms) <= 2)
+    if not needs_prior_question or not history:
+        return message
+
+    prior_questions = [
+        item.content for item in history
+        if item.role == "user" and item.content.strip()
+    ]
+    if not prior_questions:
+        return message
+    return prior_questions[-1] + "\n" + message
 
 
 # -- Routes --
@@ -232,11 +275,11 @@ async def chat(course_id: str, request: ChatRequest):
     """
     Main chat endpoint. Processes a user message and returns an AI response.
     """
-    course_config = _validate_course(course_id)
+    _validate_course(course_id)
     session_id = request.session_id or str(uuid.uuid4())
 
     system_prompt = SYSTEM_PROMPTS.get(course_id, "")
-    chunks = TRANSCRIPT_CHUNKS.get(course_id, [])
+    chunks = COURSE_SOURCE_CHUNKS.get(course_id, [])
 
     if not system_prompt:
         raise HTTPException(
@@ -244,16 +287,44 @@ async def chat(course_id: str, request: ChatRequest):
             detail=f"System prompt not initialized for course {course_id}"
         )
 
-    # Search for relevant transcript chunks
-    retrieved_context = ""
-    if chunks:
-        retrieved_context = search_chunks(request.message, chunks, max_chunks=10)
+    # Search the syllabus and transcripts. Ordinary question words are ignored so
+    # an unrelated source is not presented merely because it contains "what".
+    retrieval_query = _build_retrieval_query(request.message, request.history)
+    source_matches = search_chunk_matches(retrieval_query, chunks, max_chunks=3)
+    source_payload = [
+        {
+            "name": match["display_name"],
+            "type": match["source_type"],
+            "excerpt": match["excerpt"],
+        }
+        for match in source_matches
+    ]
+
+    # If the student asked a substantive question and no course source matched,
+    # answer deterministically instead of asking the language model to guess.
+    if extract_search_terms(retrieval_query) and not source_matches:
+        return JSONResponse({
+            "session_id": session_id,
+            "course_id": course_id,
+            "response": NO_MATERIALS_RESPONSE,
+            "sources": [],
+            "materials_found": False,
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 0,
+            },
+        })
 
     # Build user message with retrieved context
     user_message = request.message
-    if retrieved_context:
+    if source_matches:
+        retrieved_context = format_source_context(source_matches)
         user_message = (
-            f"RELEVANT LECTURE EXCERPTS:\n{retrieved_context}\n\n"
+            f"COURSE SOURCE EXCERPTS:\n{retrieved_context}\n\n"
+            "Use only the course material above to answer the content of the "
+            "student's question. These sources and short excerpts will be shown "
+            "separately below your answer. If the excerpts do not support an "
+            f"answer, say exactly: {NO_MATERIALS_RESPONSE}\n\n"
             f"STUDENT QUESTION:\n{request.message}"
         )
 
@@ -273,7 +344,7 @@ async def chat(course_id: str, request: ChatRequest):
 
     # Call Claude API
     try:
-        response = CLIENT.messages.create(
+        response = _get_client().messages.create(
             model=MODEL,
             max_tokens=2048,
             system=system_prompt,
@@ -287,6 +358,8 @@ async def chat(course_id: str, request: ChatRequest):
             "session_id": session_id,
             "course_id": course_id,
             "response": assistant_message,
+            "sources": source_payload,
+            "materials_found": bool(source_payload),
             "usage": {
                 "input_tokens": usage.input_tokens,
                 "output_tokens": usage.output_tokens,
@@ -454,8 +527,8 @@ def _reload_course(course_id: str) -> Dict:
     concept_map = load_concept_map(course_id)
 
     CONCEPT_MAPS[course_id] = concept_map
-    chunks = build_transcript_chunks(transcripts)
-    TRANSCRIPT_CHUNKS[course_id] = chunks
+    chunks = build_course_chunks(syllabus, transcripts)
+    COURSE_SOURCE_CHUNKS[course_id] = chunks
     system_prompt = build_system_prompt(config, concept_map, syllabus)
     SYSTEM_PROMPTS[course_id] = system_prompt
 
@@ -510,7 +583,7 @@ async def admin_list_courses(key: Optional[str] = None):
             except Exception:
                 pass
 
-        chunk_count = len(TRANSCRIPT_CHUNKS.get(course_id, []))
+        chunk_count = len(COURSE_SOURCE_CHUNKS.get(course_id, []))
 
         result.append({
             "id": course_id,

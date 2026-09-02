@@ -2,7 +2,7 @@
 ATLAS - Adaptive Teaching and Learning Assistant System
 FastAPI backend for multi-course AI teaching assistants.
 
-Built with FastAPI, Claude API, and Anthropic SDK.
+Built with FastAPI and the Anthropic and OpenAI APIs.
 """
 
 import json
@@ -10,15 +10,17 @@ import hmac
 import os
 import re
 import uuid
+from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import anthropic
+import openai
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -37,6 +39,14 @@ from knowledge import (
 )
 from prompts.system_prompt import build_system_prompt
 from concept_maps import build_concept_map_prompt, parse_concept_map_response
+from ai_providers import (
+    DEFAULT_MODEL_BY_PROVIDER,
+    PROVIDER_LABELS,
+    model_catalog,
+    model_name,
+    normalize_provider,
+    validate_provider_model,
+)
 from pilot_platform import (
     MAX_DOCUMENT_BYTES,
     PilotConfigurationError,
@@ -120,10 +130,17 @@ class FacultyCourseCreateRequest(BaseModel):
     section: str = Field(default="", max_length=80)
     campus: str = Field(default="Arlington", min_length=1, max_length=80)
     monthly_question_limit: int = Field(default=500, ge=1, le=5000)
+    provider: Literal["anthropic", "openai"] = "anthropic"
+    model: str = Field(default=DEFAULT_MODEL_BY_PROVIDER["anthropic"], max_length=100)
 
 
 class FacultyCourseStatusRequest(BaseModel):
     status: Literal["draft", "published", "archived"]
+
+
+class FacultyCourseModelRequest(BaseModel):
+    provider: Literal["anthropic", "openai"]
+    model: str = Field(min_length=1, max_length=100)
 
 
 class PilotAdminLoginRequest(BaseModel):
@@ -263,7 +280,8 @@ def _pilot_course_config(course: Dict) -> Dict:
         "_owner_id": course["owner_id"],
         "_status": course["status"],
         "_list_on_homepage": False,
-        "_model": MODEL,
+        "_provider": course.get("provider") or "anthropic",
+        "_model": course.get("model") or MODEL,
     }
 
 
@@ -316,18 +334,21 @@ def _validate_course(course_id: str) -> Dict:
     return config
 
 
-def _get_client(course_id: str) -> anthropic.Anthropic:
-    """Use the professor's key for pilot courses and the legacy key otherwise."""
+def _get_client(course_id: str) -> tuple[str, Any]:
+    """Return the course's provider and a client using the correct saved key."""
     config = COURSES.get(course_id, {})
     if config.get("_managed"):
         store = _require_pilot_store()
-        api_key = store.decrypted_api_key(config["_owner_id"])
+        provider = config.get("_provider", "anthropic")
+        api_key = store.decrypted_api_key(config["_owner_id"], provider)
         if not api_key:
             raise HTTPException(
                 status_code=503,
                 detail="This course assistant is temporarily unavailable.",
             )
-        return anthropic.Anthropic(api_key=api_key)
+        if provider == "openai":
+            return provider, openai.OpenAI(api_key=api_key)
+        return provider, anthropic.Anthropic(api_key=api_key)
 
     global CLIENT
     if CLIENT is None:
@@ -338,7 +359,62 @@ def _get_client(course_id: str) -> anthropic.Anthropic:
                 detail="This course assistant is temporarily unavailable.",
             )
         CLIENT = anthropic.Anthropic(api_key=api_key)
-    return CLIENT
+    return "anthropic", CLIENT
+
+
+@dataclass
+class ProviderResponse:
+    text: str
+    input_tokens: int
+    output_tokens: int
+
+
+def _call_course_model(
+    course_id: str,
+    messages: List[Dict[str, str]],
+    max_tokens: int,
+    system_prompt: str = "",
+) -> ProviderResponse:
+    """Call Anthropic or OpenAI while returning one common response shape."""
+    config = COURSES.get(course_id, {})
+    model = config.get("_model", MODEL)
+    provider, client = _get_client(course_id)
+
+    if provider == "openai":
+        request: Dict[str, Any] = {
+            "model": model,
+            "input": messages,
+            "max_output_tokens": max_tokens,
+            # ATLAS does not use provider-side conversation storage.
+            "store": False,
+        }
+        if system_prompt:
+            request["instructions"] = system_prompt
+        response = client.responses.create(**request)
+        return ProviderResponse(
+            text=response.output_text,
+            input_tokens=int(response.usage.input_tokens),
+            output_tokens=int(response.usage.output_tokens),
+        )
+
+    request = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": messages,
+    }
+    if system_prompt:
+        request["system"] = system_prompt
+    response = client.messages.create(**request)
+    text_blocks = [
+        getattr(block, "text", "")
+        for block in response.content
+        if getattr(block, "text", "")
+    ]
+    return ProviderResponse(
+        text="\n".join(text_blocks).strip(),
+        input_tokens=int(response.usage.input_tokens),
+        output_tokens=int(response.usage.output_tokens),
+    )
 
 
 def _session_token(request: Request) -> str:
@@ -411,6 +487,18 @@ def _faculty_course_payload(store: PilotStore, course: Dict) -> Dict:
         "section": course["section"],
         "campus": course["campus"],
         "status": course["status"],
+        "provider": course.get("provider") or "anthropic",
+        "provider_name": PROVIDER_LABELS.get(
+            course.get("provider") or "anthropic", course.get("provider", "")
+        ),
+        "model": course.get("model") or MODEL,
+        "model_name": model_name(
+            course.get("provider") or "anthropic", course.get("model") or MODEL
+        ),
+        "model_updated_at": course.get("model_updated_at"),
+        "model_history": store.course_model_history(
+            course["id"], course["owner_id"], limit=10
+        ),
         "monthly_question_limit": course["monthly_question_limit"],
         "remaining_questions": store.remaining_questions(course["id"]),
         "usage": usage,
@@ -627,27 +715,28 @@ async def chat(course_id: str, request: ChatRequest):
                 detail="This course has reached its monthly ATLAS question limit.",
             )
 
-    # Call Claude API
+    # Call the provider and model selected for this course.
     try:
         model = config.get("_model", MODEL)
-        response = _get_client(course_id).messages.create(
-            model=model,
+        provider = config.get("_provider", "anthropic")
+        response = _call_course_model(
+            course_id=course_id,
             max_tokens=2048,
-            system=system_prompt,
+            system_prompt=system_prompt,
             messages=messages,
         )
 
-        assistant_message = response.content[0].text
-        usage = response.usage
+        assistant_message = response.text
 
         if config.get("_managed"):
             _require_pilot_store().record_usage(
                 course_id=course_id,
                 professor_id=config["_owner_id"],
                 session_id=session_id,
+                provider=provider,
                 model=model,
-                input_tokens=usage.input_tokens,
-                output_tokens=usage.output_tokens,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
             )
 
         return JSONResponse({
@@ -657,14 +746,14 @@ async def chat(course_id: str, request: ChatRequest):
             "sources": source_payload,
             "materials_found": bool(source_payload),
             "usage": {
-                "input_tokens": usage.input_tokens,
-                "output_tokens": usage.output_tokens,
+                "input_tokens": response.input_tokens,
+                "output_tokens": response.output_tokens,
             }
         })
 
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, openai.APIError) as exc:
         print(
-            f"Anthropic API error for course {course_id}: "
+            f"AI provider error for course {course_id}: "
             f"{type(exc).__name__}"
         )
         raise HTTPException(
@@ -901,33 +990,73 @@ async def faculty_join(payload: FacultyJoinRequest):
 
 @app.get("/api/faculty/me")
 async def faculty_me(request: Request):
-    return {"professor": _require_professor(request)}
+    return {
+        "professor": _require_professor(request),
+        "model_catalog": model_catalog(),
+    }
 
 
-@app.put("/api/faculty/api-key")
-async def faculty_set_api_key(request: Request, payload: FacultyApiKeyRequest):
-    professor = _require_professor(request)
+def _set_faculty_api_key(
+    professor: Dict, provider: str, api_key: str
+) -> Dict:
+    try:
+        clean_provider = normalize_provider(provider)
+    except ValueError as exc:
+        raise PilotValidationError(str(exc)) from exc
     updated = _require_pilot_store().set_professor_api_key(
-        professor["id"], payload.api_key
+        professor["id"], api_key, clean_provider
     )
     return {"professor": updated}
 
 
-@app.delete("/api/faculty/api-key")
-async def faculty_delete_api_key(request: Request):
-    professor = _require_professor(request)
+def _delete_faculty_api_key(professor: Dict, provider: str) -> Dict:
+    try:
+        clean_provider = normalize_provider(provider)
+    except ValueError as exc:
+        raise PilotValidationError(str(exc)) from exc
     store = _require_pilot_store()
     published = [
-        course for course in store.list_courses_for_professor(professor["id"])
-        if course["status"] == "published"
+        course
+        for course in store.list_courses_for_professor(professor["id"])
+        if course["status"] == "published" and course["provider"] == clean_provider
     ]
     if published:
+        provider_name = "Anthropic" if clean_provider == "anthropic" else "OpenAI"
         raise HTTPException(
             status_code=409,
-            detail="Unpublish your active courses before removing the API key.",
+            detail=(
+                f"Unpublish courses using {provider_name}, or switch them to another "
+                "provider, before removing this key."
+            ),
         )
-    updated = store.delete_professor_api_key(professor["id"])
+    updated = store.delete_professor_api_key(professor["id"], clean_provider)
     return {"professor": updated}
+
+
+@app.put("/api/faculty/api-keys/{provider}")
+async def faculty_set_provider_api_key(
+    provider: str, request: Request, payload: FacultyApiKeyRequest
+):
+    return _set_faculty_api_key(
+        _require_professor(request), provider, payload.api_key
+    )
+
+
+@app.delete("/api/faculty/api-keys/{provider}")
+async def faculty_delete_provider_api_key(provider: str, request: Request):
+    return _delete_faculty_api_key(_require_professor(request), provider)
+
+
+@app.put("/api/faculty/api-key")
+async def faculty_set_api_key(request: Request, payload: FacultyApiKeyRequest):
+    return _set_faculty_api_key(
+        _require_professor(request), "anthropic", payload.api_key
+    )
+
+
+@app.delete("/api/faculty/api-key")
+async def faculty_delete_api_key(request: Request):
+    return _delete_faculty_api_key(_require_professor(request), "anthropic")
 
 
 @app.get("/api/faculty/courses")
@@ -948,6 +1077,16 @@ async def faculty_create_course(
 ):
     professor = _require_professor(request)
     store = _require_pilot_store()
+    try:
+        provider, model = validate_provider_model(payload.provider, payload.model)
+    except ValueError as exc:
+        raise PilotValidationError(str(exc)) from exc
+    if not professor["api_keys"][provider]["has_key"]:
+        provider_name = "Anthropic" if provider == "anthropic" else "OpenAI"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Add your {provider_name} API key before creating this course.",
+        )
     course = store.create_course(
         owner_id=professor["id"],
         name=payload.name,
@@ -956,12 +1095,32 @@ async def faculty_create_course(
         section=payload.section,
         campus=payload.campus,
         monthly_question_limit=payload.monthly_question_limit,
+        provider=provider,
+        model=model,
     )
     _reload_pilot_course(course["id"])
     return JSONResponse(
         _faculty_course_payload(store, course),
         status_code=201,
     )
+
+
+@app.put("/api/faculty/courses/{course_id}/model")
+async def faculty_set_course_model(
+    course_id: str,
+    request: Request,
+    payload: FacultyCourseModelRequest,
+):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    updated = store.set_course_model(
+        course_id=course_id,
+        owner_id=professor["id"],
+        provider=payload.provider,
+        model=payload.model,
+    )
+    _reload_pilot_course(course_id)
+    return _faculty_course_payload(store, updated)
 
 
 @app.post("/api/faculty/courses/{course_id}/documents")
@@ -1034,23 +1193,25 @@ async def faculty_generate_concept_map(course_id: str, request: Request):
     course = store.get_course(course_id)
     if not course or course["owner_id"] != professor["id"]:
         raise HTTPException(status_code=404, detail="Course not found")
-    if not professor["has_api_key"]:
+    provider = course.get("provider") or "anthropic"
+    model = course.get("model") or MODEL
+    if not professor["api_keys"][provider]["has_key"]:
+        provider_name = "Anthropic" if provider == "anthropic" else "OpenAI"
         raise HTTPException(
             status_code=400,
-            detail="Add your Anthropic API key before generating a concept map.",
+            detail=f"Add your {provider_name} API key before generating a concept map.",
         )
 
     syllabus, transcripts, _ = store.load_course_materials(course_id)
     prompt = build_concept_map_prompt(course, syllabus, transcripts)
-    model = COURSES.get(course_id, {}).get("_model", MODEL)
     try:
-        response = _get_client(course_id).messages.create(
-            model=model,
+        response = _call_course_model(
+            course_id=course_id,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
         )
         concept_map = parse_concept_map_response(
-            response.content[0].text,
+            response.text,
             course_id,
         )
         store.set_concept_map(course_id, professor["id"], concept_map)
@@ -1058,9 +1219,10 @@ async def faculty_generate_concept_map(course_id: str, request: Request):
             course_id=course_id,
             professor_id=professor["id"],
             session_id="faculty-concept-map",
+            provider=provider,
             model=model,
-            input_tokens=response.usage.input_tokens,
-            output_tokens=response.usage.output_tokens,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
             event_type="concept_map",
         )
         _reload_pilot_course(course_id)
@@ -1068,9 +1230,9 @@ async def faculty_generate_concept_map(course_id: str, request: Request):
             "status": "generated",
             "concept_count": len(concept_map) - 1,
         }
-    except anthropic.APIError as exc:
+    except (anthropic.APIError, openai.APIError) as exc:
         print(
-            f"Anthropic concept-map error for course {course_id}: "
+            f"AI provider concept-map error for course {course_id}: "
             f"{type(exc).__name__}"
         )
         raise HTTPException(
@@ -1092,10 +1254,12 @@ async def faculty_set_course_status(
         raise HTTPException(status_code=404, detail="Course not found")
 
     if payload.status == "published":
-        if not professor["has_api_key"]:
+        provider = course.get("provider") or "anthropic"
+        if not professor["api_keys"][provider]["has_key"]:
+            provider_name = "Anthropic" if provider == "anthropic" else "OpenAI"
             raise HTTPException(
                 status_code=400,
-                detail="Add your Anthropic API key before publishing.",
+                detail=f"Add your {provider_name} API key before publishing.",
             )
         if not store.list_documents(course_id, professor["id"]):
             raise HTTPException(

@@ -2,9 +2,9 @@
 
 The pilot is intentionally small: at most five invited Northeastern faculty
 members, one Railway application replica, and one SQLite database stored on a
-persistent Railway volume.  Course documents live beside the database on that
-same volume.  Each professor supplies an Anthropic API key, which is encrypted
-before it is written to disk.
+persistent Railway volume. Course documents live beside the database on that
+same volume. Each professor can supply separate Anthropic and OpenAI API keys,
+which are encrypted before they are written to disk.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from cryptography.fernet import Fernet, InvalidToken
+
+from ai_providers import DEFAULT_MODEL_BY_PROVIDER, normalize_provider, validate_provider_model
 
 
 DEFAULT_MAX_PROFESSORS = 5
@@ -223,6 +225,8 @@ class PilotStore:
                     password_hash TEXT NOT NULL,
                     api_key_encrypted TEXT,
                     api_key_last_four TEXT,
+                    openai_api_key_encrypted TEXT,
+                    openai_api_key_last_four TEXT,
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL
                 );
@@ -248,6 +252,9 @@ class PilotStore:
                     status TEXT NOT NULL DEFAULT 'draft',
                     monthly_question_limit INTEGER NOT NULL DEFAULT 500,
                     concept_map_json TEXT NOT NULL DEFAULT '{}',
+                    provider TEXT NOT NULL DEFAULT 'anthropic',
+                    model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
+                    model_updated_at TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (owner_id) REFERENCES professors(id)
@@ -281,6 +288,7 @@ class PilotStore:
                     course_id TEXT NOT NULL,
                     professor_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'anthropic',
                     model TEXT NOT NULL,
                     event_type TEXT NOT NULL DEFAULT 'student_question',
                     input_tokens INTEGER NOT NULL,
@@ -300,6 +308,19 @@ class PilotStore:
                     FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
                 );
 
+                CREATE TABLE IF NOT EXISTS course_model_events (
+                    id TEXT PRIMARY KEY,
+                    course_id TEXT NOT NULL,
+                    professor_id TEXT NOT NULL,
+                    old_provider TEXT,
+                    old_model TEXT,
+                    new_provider TEXT NOT NULL,
+                    new_model TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
+                    FOREIGN KEY (professor_id) REFERENCES professors(id)
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_courses_owner
                     ON courses(owner_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_expires
@@ -308,8 +329,38 @@ class PilotStore:
                     ON documents(course_id);
                 CREATE INDEX IF NOT EXISTS idx_usage_course_created
                     ON usage_events(course_id, created_at);
+                CREATE INDEX IF NOT EXISTS idx_course_model_events
+                    ON course_model_events(course_id, created_at);
                 """
             )
+            professor_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(professors)")
+            }
+            if "openai_api_key_encrypted" not in professor_columns:
+                connection.execute(
+                    "ALTER TABLE professors ADD COLUMN openai_api_key_encrypted TEXT"
+                )
+            if "openai_api_key_last_four" not in professor_columns:
+                connection.execute(
+                    "ALTER TABLE professors ADD COLUMN openai_api_key_last_four TEXT"
+                )
+            course_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(courses)")
+            }
+            if "provider" not in course_columns:
+                connection.execute(
+                    "ALTER TABLE courses ADD COLUMN provider TEXT NOT NULL DEFAULT 'anthropic'"
+                )
+            if "model" not in course_columns:
+                connection.execute(
+                    "ALTER TABLE courses ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'"
+                )
+            if "model_updated_at" not in course_columns:
+                connection.execute(
+                    "ALTER TABLE courses ADD COLUMN model_updated_at TEXT"
+                )
             usage_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(usage_events)")
@@ -319,6 +370,13 @@ class PilotStore:
                     """
                     ALTER TABLE usage_events
                     ADD COLUMN event_type TEXT NOT NULL DEFAULT 'student_question'
+                    """
+                )
+            if "provider" not in usage_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE usage_events
+                    ADD COLUMN provider TEXT NOT NULL DEFAULT 'anthropic'
                     """
                 )
             document_columns = {
@@ -558,12 +616,25 @@ class PilotStore:
 
     @staticmethod
     def _public_professor(professor: Dict) -> Dict:
+        anthropic_key = bool(professor.get("api_key_encrypted"))
+        openai_key = bool(professor.get("openai_api_key_encrypted"))
         return {
             "id": professor["id"],
             "email": professor["email"],
             "name": professor["name"],
-            "has_api_key": bool(professor.get("api_key_encrypted")),
+            # The two fields below remain as Anthropic aliases for older clients.
+            "has_api_key": anthropic_key,
             "api_key_last_four": professor.get("api_key_last_four") or "",
+            "api_keys": {
+                "anthropic": {
+                    "has_key": anthropic_key,
+                    "last_four": professor.get("api_key_last_four") or "",
+                },
+                "openai": {
+                    "has_key": openai_key,
+                    "last_four": professor.get("openai_api_key_last_four") or "",
+                },
+            },
             "is_active": bool(professor.get("is_active", 1)),
             "created_at": professor["created_at"],
         }
@@ -576,50 +647,85 @@ class PilotStore:
             ).fetchone()
         return self._public_professor(dict(row)) if row else None
 
-    def set_professor_api_key(self, professor_id: str, api_key: str) -> Dict:
+    @staticmethod
+    def _api_key_columns(provider: str) -> Tuple[str, str]:
+        try:
+            normalized = normalize_provider(provider)
+        except ValueError as exc:
+            raise PilotValidationError(str(exc)) from exc
+        if normalized == "anthropic":
+            return "api_key_encrypted", "api_key_last_four"
+        return "openai_api_key_encrypted", "openai_api_key_last_four"
+
+    @staticmethod
+    def _validate_api_key(provider: str, api_key: str) -> str:
         key = (api_key or "").strip()
-        if not key.startswith("sk-ant-") or len(key) < 30:
-            raise PilotValidationError("Enter a valid Anthropic API key.")
+        if provider == "anthropic":
+            valid = key.startswith("sk-ant-") and len(key) >= 30
+            message = "Enter a valid Anthropic API key."
+        else:
+            valid = key.startswith("sk-") and len(key) >= 20
+            message = "Enter a valid OpenAI API key."
+        if not valid:
+            raise PilotValidationError(message)
+        return key
+
+    def set_professor_api_key(
+        self,
+        professor_id: str,
+        api_key: str,
+        provider: str = "anthropic",
+    ) -> Dict:
+        try:
+            normalized = normalize_provider(provider)
+        except ValueError as exc:
+            raise PilotValidationError(str(exc)) from exc
+        encrypted_column, last_four_column = self._api_key_columns(normalized)
+        key = self._validate_api_key(normalized, api_key)
         encrypted = self.fernet.encrypt(key.encode("utf-8")).decode("ascii")
         with self._connect() as connection:
             result = connection.execute(
-                """
-                UPDATE professors
-                SET api_key_encrypted = ?, api_key_last_four = ?
+                f"""
+                UPDATE professors SET {encrypted_column} = ?, {last_four_column} = ?
                 WHERE id = ? AND is_active = 1
-                """,
+                """,  # Column names come only from _api_key_columns.
                 (encrypted, key[-4:], professor_id),
             )
             if result.rowcount != 1:
                 raise PilotValidationError("Professor account not found.")
         return self.get_professor(professor_id)
 
-    def delete_professor_api_key(self, professor_id: str) -> Dict:
+    def delete_professor_api_key(
+        self, professor_id: str, provider: str = "anthropic"
+    ) -> Dict:
+        encrypted_column, last_four_column = self._api_key_columns(provider)
         with self._connect() as connection:
             connection.execute(
-                """
-                UPDATE professors
-                SET api_key_encrypted = NULL, api_key_last_four = NULL
+                f"""
+                UPDATE professors SET {encrypted_column} = NULL, {last_four_column} = NULL
                 WHERE id = ?
-                """,
+                """,  # Column names come only from _api_key_columns.
                 (professor_id,),
             )
         return self.get_professor(professor_id)
 
-    def decrypted_api_key(self, professor_id: str) -> Optional[str]:
+    def decrypted_api_key(
+        self, professor_id: str, provider: str = "anthropic"
+    ) -> Optional[str]:
+        encrypted_column, _ = self._api_key_columns(provider)
         with self._connect() as connection:
             row = connection.execute(
-                """
-                SELECT api_key_encrypted FROM professors
+                f"""
+                SELECT {encrypted_column} AS encrypted_key FROM professors
                 WHERE id = ? AND is_active = 1
-                """,
+                """,  # Column name comes only from _api_key_columns.
                 (professor_id,),
             ).fetchone()
-        if not row or not row["api_key_encrypted"]:
+        if not row or not row["encrypted_key"]:
             return None
         try:
             return self.fernet.decrypt(
-                row["api_key_encrypted"].encode("ascii")
+                row["encrypted_key"].encode("ascii")
             ).decode("utf-8")
         except InvalidToken as exc:
             raise PilotConfigurationError(
@@ -635,6 +741,8 @@ class PilotStore:
         section: str = "",
         campus: str = "Arlington",
         monthly_question_limit: int = DEFAULT_MONTHLY_QUESTION_LIMIT,
+        provider: str = "anthropic",
+        model: str = DEFAULT_MODEL_BY_PROVIDER["anthropic"],
     ) -> Dict:
         if not self.get_professor(owner_id):
             raise PilotValidationError("Professor account not found.")
@@ -652,6 +760,10 @@ class PilotStore:
         clean_term = _clean_text(term, "Term", 80)
         clean_section = _clean_text(section, "Section", 80, required=False)
         clean_campus = _clean_text(campus, "Campus", 80)
+        try:
+            clean_provider, clean_model = validate_provider_model(provider, model)
+        except ValueError as exc:
+            raise PilotValidationError(str(exc)) from exc
         limit = min(max(int(monthly_question_limit), 1), 5000)
         course_id = "c_" + secrets.token_urlsafe(20)
         now = utc_now()
@@ -660,8 +772,9 @@ class PilotStore:
                 """
                 INSERT INTO courses
                     (id, owner_id, name, code, section, term, campus, status,
-                     monthly_question_limit, concept_map_json, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, '{}', ?, ?)
+                     monthly_question_limit, concept_map_json, provider, model,
+                     model_updated_at, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, '{}', ?, ?, ?, ?, ?)
                 """,
                 (
                     course_id,
@@ -672,6 +785,9 @@ class PilotStore:
                     clean_term,
                     clean_campus,
                     limit,
+                    clean_provider,
+                    clean_model,
+                    now,
                     now,
                     now,
                 ),
@@ -720,6 +836,82 @@ class PilotStore:
             if result.rowcount != 1:
                 raise PilotValidationError("Course not found.")
         return self.get_course(course_id)
+
+    def set_course_model(
+        self,
+        course_id: str,
+        owner_id: str,
+        provider: str,
+        model: str,
+    ) -> Dict:
+        try:
+            clean_provider, clean_model = validate_provider_model(provider, model)
+        except ValueError as exc:
+            raise PilotValidationError(str(exc)) from exc
+        if not self.decrypted_api_key(owner_id, clean_provider):
+            provider_name = "Anthropic" if clean_provider == "anthropic" else "OpenAI"
+            raise PilotValidationError(
+                f"Add your {provider_name} API key before selecting that provider."
+            )
+
+        now = utc_now()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            course = connection.execute(
+                "SELECT * FROM courses WHERE id = ? AND owner_id = ?",
+                (course_id, owner_id),
+            ).fetchone()
+            if not course:
+                raise PilotValidationError("Course not found.")
+            if course["provider"] == clean_provider and course["model"] == clean_model:
+                return dict(course)
+            connection.execute(
+                """
+                UPDATE courses
+                SET provider = ?, model = ?, model_updated_at = ?, updated_at = ?
+                WHERE id = ? AND owner_id = ?
+                """,
+                (clean_provider, clean_model, now, now, course_id, owner_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO course_model_events
+                    (id, course_id, professor_id, old_provider, old_model,
+                     new_provider, new_model, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "m_" + secrets.token_urlsafe(16),
+                    course_id,
+                    owner_id,
+                    course["provider"],
+                    course["model"],
+                    clean_provider,
+                    clean_model,
+                    now,
+                ),
+            )
+        return self.get_course(course_id)
+
+    def course_model_history(
+        self, course_id: str, owner_id: str, limit: int = 20
+    ) -> List[Dict]:
+        course = self.get_course(course_id)
+        if not course or course["owner_id"] != owner_id:
+            raise PilotValidationError("Course not found.")
+        safe_limit = min(max(int(limit), 1), 100)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT old_provider, old_model, new_provider, new_model, created_at
+                FROM course_model_events
+                WHERE course_id = ? AND professor_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (course_id, owner_id, safe_limit),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def set_concept_map(self, course_id: str, owner_id: str, concept_map: Dict) -> Dict:
         serialized = json.dumps(concept_map, ensure_ascii=False)
@@ -971,11 +1163,40 @@ class PilotStore:
                 """,
                 (course_id, month_start),
             ).fetchone()
+            breakdown = connection.execute(
+                """
+                SELECT provider, model,
+                       COALESCE(
+                           SUM(CASE WHEN event_type = 'student_question' THEN 1 ELSE 0 END),
+                           0
+                       ) AS questions,
+                       COALESCE(SUM(CASE WHEN event_type = 'concept_map' THEN 1 ELSE 0 END), 0)
+                           AS concept_map_generations,
+                       COALESCE(SUM(input_tokens), 0) AS input_tokens,
+                       COALESCE(SUM(output_tokens), 0) AS output_tokens
+                FROM usage_events
+                WHERE course_id = ? AND created_at >= ?
+                GROUP BY provider, model
+                ORDER BY provider, model
+                """,
+                (course_id, month_start),
+            ).fetchall()
         return {
             "questions": int(row["questions"]),
             "concept_map_generations": int(row["concept_map_generations"]),
             "input_tokens": int(row["input_tokens"]),
             "output_tokens": int(row["output_tokens"]),
+            "by_model": [
+                {
+                    "provider": item["provider"],
+                    "model": item["model"],
+                    "questions": int(item["questions"]),
+                    "concept_map_generations": int(item["concept_map_generations"]),
+                    "input_tokens": int(item["input_tokens"]),
+                    "output_tokens": int(item["output_tokens"]),
+                }
+                for item in breakdown
+            ],
         }
 
     def remaining_questions(self, course_id: str) -> int:
@@ -994,22 +1215,28 @@ class PilotStore:
         input_tokens: int,
         output_tokens: int,
         event_type: str = "student_question",
+        provider: str = "anthropic",
     ) -> None:
         if event_type not in {"student_question", "concept_map"}:
             raise PilotValidationError("Invalid usage event type.")
+        try:
+            clean_provider = normalize_provider(provider)
+        except ValueError as exc:
+            raise PilotValidationError(str(exc)) from exc
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO usage_events
-                    (id, course_id, professor_id, session_id, model, event_type,
+                    (id, course_id, professor_id, session_id, provider, model, event_type,
                      input_tokens, output_tokens, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     "u_" + secrets.token_urlsafe(16),
                     course_id,
                     professor_id,
                     session_id,
+                    clean_provider,
                     model,
                     event_type,
                     max(0, int(input_tokens)),
@@ -1049,7 +1276,8 @@ class PilotStore:
         with self._connect() as connection:
             professors = connection.execute(
                 """
-                SELECT p.id, p.email, p.name, p.api_key_last_four, p.is_active,
+                SELECT p.id, p.email, p.name, p.api_key_last_four,
+                       p.openai_api_key_last_four, p.is_active,
                        p.created_at, COUNT(DISTINCT c.id) AS course_count
                 FROM professors p
                 LEFT JOIN courses c ON c.owner_id = p.id

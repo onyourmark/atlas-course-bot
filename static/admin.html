@@ -374,7 +374,7 @@
 
     <!-- Footer -->
     <footer>
-        ATLAS Lab &middot; Northeastern University &middot; <a href="mailto:b.claster@northeastern.edu">Prof. Bill Claster</a>
+        ATLAS Lab &middot; Northeastern University &middot; <a href="mailto:w.claster@northeastern.edu">Prof. Bill Claster</a>
     </footer>
 
     <script>
@@ -395,13 +395,13 @@
         async function loadDashboard() {
             var key = getAdminKey();
 
-            if (!key || key !== 'atlas2026') {
+            if (!key) {
                 showAccessDenied();
                 return;
             }
 
             try {
-                var response = await fetch('/api/admin/stats?key=atlas2026');
+                var response = await fetch('/api/admin/stats?key=' + encodeURIComponent(key));
                 if (!response.ok) throw new Error('Failed to load stats');
                 var stats = await response.json();
                 renderDashboard(stats);

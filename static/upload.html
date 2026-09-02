@@ -103,7 +103,7 @@
     </main>
     <div id="toast-container" class="toast-container"></div>
     <footer>
-        ATLAS Lab &middot; Northeastern University &middot; <a href="mailto:b.claster@northeastern.edu">Prof. Bill Claster</a>
+        ATLAS Lab &middot; Northeastern University &middot; <a href="mailto:w.claster@northeastern.edu">Prof. Bill Claster</a>
     </footer>
     <script>
         function getKey() { return new URLSearchParams(window.location.search).get('key') || ''; }
@@ -114,15 +114,15 @@
 
         let coursesData = [];
 
-        async function fetchCourses() { const res = await fetch('/api/admin/courses?key=' + getKey()); if (!res.ok) throw new Error('Failed to load courses'); const data = await res.json(); return data.courses; }
+        async function fetchCourses() { const res = await fetch('/api/admin/courses?key=' + encodeURIComponent(getKey())); if (!res.ok) throw new Error('Failed to load courses'); const data = await res.json(); return data.courses; }
 
-        async function uploadSyllabus(courseId, file) { const form = new FormData(); form.append('course_id', courseId); form.append('file', file); const res = await fetch('/api/admin/upload/syllabus?key=' + getKey(), { method: 'POST', body: form }); if (!res.ok) throw new Error('Upload failed'); return res.json(); }
+        async function uploadSyllabus(courseId, file) { const form = new FormData(); form.append('course_id', courseId); form.append('file', file); const res = await fetch('/api/admin/upload/syllabus?key=' + encodeURIComponent(getKey()), { method: 'POST', body: form }); if (!res.ok) throw new Error('Upload failed'); return res.json(); }
 
-        async function uploadTranscripts(courseId, files) { const form = new FormData(); form.append('course_id', courseId); for (const file of files) { form.append('files', file); } const res = await fetch('/api/admin/upload/transcripts?key=' + getKey(), { method: 'POST', body: form }); if (!res.ok) throw new Error('Upload failed'); return res.json(); }
+        async function uploadTranscripts(courseId, files) { const form = new FormData(); form.append('course_id', courseId); for (const file of files) { form.append('files', file); } const res = await fetch('/api/admin/upload/transcripts?key=' + encodeURIComponent(getKey()), { method: 'POST', body: form }); if (!res.ok) throw new Error('Upload failed'); return res.json(); }
 
-        async function deleteFile(courseId, filename, fileType) { const res = await fetch('/api/admin/file?key=' + getKey() + '&course_id=' + courseId + '&filename=' + encodeURIComponent(filename) + '&file_type=' + fileType, { method: 'DELETE' }); if (!res.ok) throw new Error('Delete failed'); return res.json(); }
+        async function deleteFile(courseId, filename, fileType) { const res = await fetch('/api/admin/file?key=' + encodeURIComponent(getKey()) + '&course_id=' + encodeURIComponent(courseId) + '&filename=' + encodeURIComponent(filename) + '&file_type=' + encodeURIComponent(fileType), { method: 'DELETE' }); if (!res.ok) throw new Error('Delete failed'); return res.json(); }
 
-        async function reloadCourse(courseId) { const res = await fetch('/api/admin/reload/' + courseId + '?key=' + getKey(), { method: 'POST' }); if (!res.ok) throw new Error('Reload failed'); return res.json(); }
+        async function reloadCourse(courseId) { const res = await fetch('/api/admin/reload/' + encodeURIComponent(courseId) + '?key=' + encodeURIComponent(getKey()), { method: 'POST' }); if (!res.ok) throw new Error('Reload failed'); return res.json(); }
 
         function renderCourses(courses) {
             const grid = document.getElementById('course-grid');
@@ -182,7 +182,7 @@
         document.addEventListener('DOMContentLoaded', async function() {
             const key = getKey();
             document.getElementById('admin-link').href = '/admin?key=' + key;
-            try { coursesData = await fetchCourses(); renderCourses(coursesData); } catch (e) { document.getElementById('course-grid').innerHTML = '<div style="text-align: center; padding: 60px; color: #c62828;">Access denied or failed to load courses.<br><small style="color: #999;">Make sure ?key=atlas2026 is in the URL.</small></div>'; }
+            try { coursesData = await fetchCourses(); renderCourses(coursesData); } catch (e) { document.getElementById('course-grid').innerHTML = '<div style="text-align: center; padding: 60px; color: #c62828;">Access denied or failed to load courses.<br><small style="color: #999;">Use your configured administrator link.</small></div>'; }
         });
     </script>
 </body>

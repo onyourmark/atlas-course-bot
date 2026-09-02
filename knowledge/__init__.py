@@ -209,15 +209,19 @@ def build_transcript_chunks(transcripts: Dict[str, str]) -> List[Dict]:
     return chunks
 
 
-def build_course_chunks(syllabus: str, transcripts: Dict[str, str]) -> List[Dict]:
+def build_course_chunks(
+    syllabus: str,
+    transcripts: Dict[str, str],
+    syllabus_filename: str = "syllabus.md",
+) -> List[Dict]:
     """Build searchable chunks from the syllabus and all lecture transcripts."""
     chunks: List[Dict] = []
     if syllabus.strip():
         chunks.extend(_build_text_chunks(
             content=syllabus,
-            source="syllabus.md",
+            source=syllabus_filename,
             source_type="syllabus",
-            display_name="Course syllabus (syllabus.md)",
+            display_name=f"Course syllabus ({syllabus_filename})",
         ))
     chunks.extend(build_transcript_chunks(transcripts))
     return chunks

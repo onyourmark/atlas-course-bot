@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Sign in to the ATLAS Arlington faculty pilot.">
+    <title>Faculty sign in | ATLAS</title>
+    <link rel="stylesheet" href="/static/pilot.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="header-inner">
+            <a class="brand" href="/">
+                <span class="brand-mark">ATLAS</span>
+                <span class="brand-label">Arlington faculty pilot</span>
+            </a>
+            <a href="/about">About ATLAS</a>
+        </div>
+    </header>
+    <main class="auth-page">
+        <section class="card">
+            <div class="card-body">
+                <p class="eyebrow">Faculty pilot</p>
+                <h1>Welcome back</h1>
+                <p class="lede">Sign in to create courses, upload course materials, and share ATLAS with students.</p>
+                <form id="login-form">
+                    <div class="field">
+                        <label for="email">Northeastern email</label>
+                        <input id="email" type="email" autocomplete="username" placeholder="name@northeastern.edu" required>
+                    </div>
+                    <div class="field">
+                        <label for="password">Password</label>
+                        <input id="password" type="password" autocomplete="current-password" required>
+                    </div>
+                    <button class="button full" id="submit-button" type="submit">Sign in</button>
+                    <div class="status-message" id="status" role="alert"></div>
+                </form>
+            </div>
+        </section>
+        <p class="auth-footer">Participation is invitation-only during the five-professor pilot. Contact <a href="mailto:w.claster@northeastern.edu">Prof. Bill Claster</a> to ask about joining.</p>
+    </main>
+    <script>
+        const form = document.getElementById('login-form');
+        const statusBox = document.getElementById('status');
+        const button = document.getElementById('submit-button');
+
+        function showStatus(message, kind) {
+            statusBox.textContent = message;
+            statusBox.className = 'status-message show ' + kind;
+        }
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            button.disabled = true;
+            statusBox.className = 'status-message';
+            try {
+                const response = await fetch('/api/faculty/login', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        email: document.getElementById('email').value,
+                        password: document.getElementById('password').value
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.detail || 'Sign in failed');
+                window.location.assign('/faculty');
+            } catch (error) {
+                showStatus(error.message, 'error');
+            } finally {
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

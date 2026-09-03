@@ -60,6 +60,11 @@
         .btn-secondary { background: #ffffff; color: #2c2c2c; border: 1px solid #e0ddd5; padding: 10px 20px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
         .btn-secondary:hover { background: #f0efe8; }
         .action-row { display: flex; gap: 10px; margin-top: 16px; }
+        .feature-settings { display: grid; gap: 10px; }
+        .feature-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; background: #ffffff; border: 1px solid #e8e5dd; border-radius: 6px; cursor: pointer; }
+        .feature-option input { margin-top: 4px; }
+        .feature-option strong { display: block; font-size: 13px; }
+        .feature-option small { display: block; color: #6b6b6b; line-height: 1.4; margin-top: 2px; }
         .toast-container { position: fixed; bottom: 24px; right: 24px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
         .toast { padding: 12px 20px; border-radius: 8px; font-size: 13px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.15); animation: slideIn 0.3s ease; max-width: 360px; }
         .toast.success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
@@ -124,6 +129,8 @@
 
         async function reloadCourse(courseId) { const res = await fetch('/api/admin/reload/' + encodeURIComponent(courseId) + '?key=' + encodeURIComponent(getKey()), { method: 'POST' }); if (!res.ok) throw new Error('Reload failed'); return res.json(); }
 
+        async function saveGuideSettings(courseId, projectBuilderEnabled, researchInnovationEnabled) { const res = await fetch('/api/admin/courses/' + encodeURIComponent(courseId) + '/features?key=' + encodeURIComponent(getKey()), { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ project_builder_enabled: projectBuilderEnabled, research_innovation_enabled: researchInnovationEnabled }) }); if (!res.ok) { let data = {}; try { data = await res.json(); } catch (_) {} throw new Error(data.detail || 'Could not save guide settings'); } return res.json(); }
+
         function renderCourses(courses) {
             const grid = document.getElementById('course-grid');
             grid.innerHTML = '';
@@ -134,6 +141,8 @@
                 const syllabusIcon = course.has_syllabus ? '<span class="stat-dot green"></span> Syllabus' : '<span class="stat-dot gray"></span> No syllabus';
                 const transcriptIcon = course.transcript_count > 0 ? '<span class="stat-dot green"></span> ' + course.transcript_count + ' transcript' + (course.transcript_count !== 1 ? 's' : '') : '<span class="stat-dot gray"></span> No transcripts';
                 const conceptIcon = course.concept_count > 0 ? '<span class="stat-dot blue"></span> ' + course.concept_count + ' concepts' : '<span class="stat-dot gray"></span> No concept map';
+                const projectChecked = course.project_builder_enabled ? ' checked' : '';
+                const researchChecked = course.research_innovation_enabled ? ' checked' : '';
 
                 let transcriptListHtml = '';
                 if (course.transcript_files.length > 0) {
@@ -155,6 +164,10 @@
                     '<div class="upload-zone" onclick="document.getElementById(\'syllabus-input-' + course.id + '\').click()" ondragover="event.preventDefault(); this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault(); this.classList.remove(\'dragover\'); handleSyllabusDrop(event, \'' + course.id + '\')"><div class="upload-zone-icon">&#128203;</div><div class="upload-zone-text">' + (course.has_syllabus ? 'Replace syllabus' : 'Upload syllabus') + '</div><div class="upload-zone-hint">.md or .txt file &mdash; click or drag &amp; drop</div><input type="file" id="syllabus-input-' + course.id + '" accept=".md,.txt" onchange="handleSyllabusSelect(event, \'' + course.id + '\')"></div></div>' +
                     '<div class="section"><div class="section-title">Lecture Transcripts</div>' + transcriptListHtml +
                     '<div class="upload-zone" style="margin-top: 10px;" onclick="document.getElementById(\'transcript-input-' + course.id + '\').click()" ondragover="event.preventDefault(); this.classList.add(\'dragover\')" ondragleave="this.classList.remove(\'dragover\')" ondrop="event.preventDefault(); this.classList.remove(\'dragover\'); handleTranscriptDrop(event, \'' + course.id + '\')"><div class="upload-zone-icon">&#128218;</div><div class="upload-zone-text">Upload transcripts</div><div class="upload-zone-hint">.docx or .txt files &mdash; select multiple or drag &amp; drop</div><input type="file" id="transcript-input-' + course.id + '" accept=".docx,.txt" multiple onchange="handleTranscriptSelect(event, \'' + course.id + '\')"></div></div>' +
+                    '<div class="section"><div class="section-title">Student Guides</div><div class="feature-settings">' +
+                    '<label class="feature-option"><input type="checkbox" id="project-guide-' + course.id + '"' + projectChecked + '><span><strong>Project Builder</strong><small>Shows “Turn this into a project.” On by default.</small></span></label>' +
+                    '<label class="feature-option"><input type="checkbox" id="research-guide-' + course.id + '"' + researchChecked + '><span><strong>Research and Innovation Guide</strong><small>Shows the optional research direction guide. Off by default.</small></span></label>' +
+                    '</div><div class="action-row"><button class="btn-secondary" onclick="handleSaveGuideSettings(\'' + course.id + '\')">Save guide settings</button></div></div>' +
                     '<div class="section"><div class="section-title">Actions</div><div class="action-row"><button class="btn-secondary" onclick="handleReload(\'' + course.id + '\')">Reload Materials</button><button class="btn-primary" onclick="window.open(\'/course/' + course.id + '\', \'_blank\')">Open Chat</button></div><div class="reload-badge" id="reload-badge-' + course.id + '" style="display: none;"><span class="check">&#10003;</span><span id="reload-info-' + course.id + '"></span></div></div>' +
                     '</div>';
 
@@ -176,6 +189,8 @@
         async function handleDeleteSyllabus(courseId) { if (!confirm('Remove syllabus from course ' + courseId + '?')) return; try { await deleteFile(courseId, 'syllabus.md', 'syllabus'); showToast('Syllabus removed.', 'success'); await refreshAll(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
 
         async function handleReload(courseId) { try { showToast('Reloading ' + courseId + '...', 'info'); const result = await reloadCourse(courseId); const badge = document.getElementById('reload-badge-' + courseId); const info = document.getElementById('reload-info-' + courseId); badge.style.display = 'inline-flex'; info.textContent = result.transcript_chunks + ' chunks, ' + result.concept_map_entries + ' concepts, ' + (result.system_prompt_chars / 1000).toFixed(1) + 'K prompt'; showToast('Course ' + courseId + ' reloaded successfully.', 'success'); } catch (e) { showToast('Error reloading: ' + e.message, 'error'); } }
+
+        async function handleSaveGuideSettings(courseId) { try { const project = document.getElementById('project-guide-' + courseId).checked; const research = document.getElementById('research-guide-' + courseId).checked; await saveGuideSettings(courseId, project, research); showToast('Guide settings saved. Students will see the change after refreshing.', 'success'); await refreshAll(); } catch (e) { showToast('Error: ' + e.message, 'error'); } }
 
         async function refreshAll() { const expanded = new Set(); document.querySelectorAll('.course-card.expanded').forEach(function(c) { expanded.add(c.id.replace('card-', '')); }); coursesData = await fetchCourses(); renderCourses(coursesData); expanded.forEach(function(id) { const card = document.getElementById('card-' + id); if (card) card.classList.add('expanded'); }); }
 

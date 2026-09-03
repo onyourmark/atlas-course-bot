@@ -117,6 +117,7 @@
                     </div>
                 </div>
                 <p class="muted small" id="course-model-description"></p>
+                <p class="muted small">New courses start with Project Builder on and the Research and Innovation Guide off. You can change both settings for each course below.</p>
                 <button class="button" type="submit">Create draft course</button>
             </form>
         </section>
@@ -340,6 +341,67 @@
                 'You can change this while the course is running. A question already being answered will finish with the previous model.'
             ));
             card.appendChild(modelArea);
+
+            const featureArea = element('div', 'feature-settings');
+            featureArea.appendChild(element('h3', '', 'Student learning guides'));
+            featureArea.appendChild(element(
+                'p', 'muted small',
+                'Choose which guided activities students see in this course.'
+            ));
+            const featureForm = element('form', 'feature-form');
+
+            function featureOption(title, detail, checked) {
+                const label = element('label', 'feature-option');
+                const checkbox = element('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = checked;
+                const copy = element('span', 'feature-copy');
+                copy.append(
+                    element('strong', '', title),
+                    element('span', 'muted small', detail)
+                );
+                label.append(checkbox, copy);
+                return {label: label, checkbox: checkbox};
+            }
+
+            const projectFeature = featureOption(
+                'Project Builder',
+                'Shows “Turn this into a project” and guides students toward a course-grounded project brief.',
+                course.project_builder_enabled
+            );
+            const researchFeature = featureOption(
+                'Research and Innovation Guide',
+                'Shows an optional Socratic guide for developing and testing a possible research direction.',
+                course.research_innovation_enabled
+            );
+            const saveFeatures = element('button', 'button', 'Save guide settings');
+            saveFeatures.type = 'submit';
+            featureForm.append(projectFeature.label, researchFeature.label, saveFeatures);
+            featureForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                saveFeatures.disabled = true;
+                try {
+                    await api('/api/faculty/courses/' + encodeURIComponent(course.id) + '/features', {
+                        method: 'PUT',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({
+                            project_builder_enabled: projectFeature.checkbox.checked,
+                            research_innovation_enabled: researchFeature.checkbox.checked
+                        })
+                    });
+                    notify('Guide settings saved. Students will see the change when they refresh the course page.');
+                    await loadCourses();
+                } catch (error) {
+                    notify(error.message, 'error');
+                    saveFeatures.disabled = false;
+                }
+            });
+            featureArea.appendChild(featureForm);
+            featureArea.appendChild(element(
+                'p', 'muted small feature-note',
+                'Turning a guide off only hides its button. It does not change course materials, the concept map, or earlier student work.'
+            ));
+            card.appendChild(featureArea);
 
             const usage = element('div', 'usage-row');
             const totalTokens = course.usage.input_tokens + course.usage.output_tokens;

@@ -473,6 +473,52 @@
         .send-button:hover:not(:disabled) { background: #aa0000; }
         .send-button:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        .guide-area {
+            padding: 12px 20px;
+            background: #fffaf2;
+            border-top: 1px solid #ead8bd;
+        }
+
+        .guide-buttons, .guide-active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .guide-button {
+            background: #ffffff;
+            color: #9b3f00;
+            border: 1px solid #dc9a69;
+            padding: 9px 14px;
+            border-radius: 7px;
+            cursor: pointer;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 650;
+        }
+
+        .guide-button:hover { background: #fff2e5; }
+        .guide-active { color: #4d4438; font-size: 13px; }
+        .guide-active strong { color: #2c2c2c; }
+        .guide-exit { color: #6b4c31; background: transparent; }
+
+        .save-brief-button {
+            width: fit-content;
+            margin-top: 8px;
+            padding: 7px 11px;
+            color: #9b3f00;
+            background: #fffaf2;
+            border: 1px solid #dc9a69;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .save-brief-button:hover { background: #fff2e5; }
+
         /* Welcome message */
         .welcome-message {
             text-align: center;
@@ -556,6 +602,17 @@
                     </div>
                 </div>
 
+                <div class="guide-area" id="guide-area" hidden>
+                    <div class="guide-buttons" id="guide-buttons">
+                        <button class="guide-button" id="project-builder-button" type="button">Turn this into a project</button>
+                        <button class="guide-button" id="research-innovation-button" type="button" hidden>Explore a research or innovation direction</button>
+                    </div>
+                    <div class="guide-active" id="guide-active" hidden>
+                        <span>Active guide: <strong id="guide-active-name"></strong></span>
+                        <button class="guide-button guide-exit" id="guide-exit-button" type="button">Return to course chat</button>
+                    </div>
+                </div>
+
                 <!-- Input area -->
                 <div class="input-area">
                     <div class="input-container">
@@ -608,6 +665,7 @@
         var conceptMap = null;
         var messageHistory = [];
         var answerMode = 'socratic';
+        var guideMode = 'course_chat';
         var firstAssistantMessage = true;
 
         function initSession() {
@@ -629,7 +687,10 @@
 
         async function loadCourse() {
             try {
-                var response = await fetch('/course/' + encodeURIComponent(courseId) + '/metadata');
+                var response = await fetch(
+                    '/course/' + encodeURIComponent(courseId) + '/metadata',
+                    {cache: 'no-store'}
+                );
                 if (!response.ok) throw new Error('Course not found');
                 currentCourse = await response.json();
                 if (currentCourse) {
@@ -637,6 +698,7 @@
                     document.getElementById('header-name').textContent = currentCourse.name;
                     document.getElementById('welcome-title').textContent = 'Welcome to ' + currentCourse.code;
                     document.getElementById('input-textarea').placeholder = 'Ask about ' + currentCourse.code + '...';
+                    renderGuideControls();
                 }
             } catch (error) {
                 console.error('Error loading course:', error);
@@ -710,6 +772,7 @@
 
         async function sendMessage(text) {
             if (!text.trim()) return;
+            var requestMode = guideMode;
             document.getElementById('input-textarea').value = '';
             addMessage('user', text);
             var typingId = addTypingIndicator();
@@ -721,15 +784,18 @@
                     body: JSON.stringify({
                         course_id: courseId,
                         session_id: sessionId,
-                        message: answerMode === 'socratic' ? '[SOCRATIC MODE] ' + text : text,
-                        history: messageHistory
+                        message: requestMode === 'course_chat' && answerMode === 'socratic'
+                            ? '[SOCRATIC MODE] ' + text
+                            : text,
+                        history: messageHistory.slice(-12),
+                        mode: requestMode
                     })
                 });
 
                 var data = await response.json();
                 if (!response.ok) throw new Error(data.detail || 'The course assistant could not complete that request.');
                 removeTypingIndicator(typingId);
-                addMessage('assistant', data.response, data.sources || []);
+                addMessage('assistant', data.response, data.sources || [], requestMode);
                 messageHistory.push({ role: 'user', content: text });
                 messageHistory.push({ role: 'assistant', content: data.response });
             } catch (error) {
@@ -739,7 +805,7 @@
             }
         }
 
-        function addMessage(role, content, sources) {
+        function addMessage(role, content, sources, responseMode) {
             var messagesDiv = document.getElementById('messages');
             var welcome = messagesDiv.querySelector('.welcome-message');
             if (welcome && role === 'user') welcome.remove();
@@ -788,50 +854,129 @@
                     bubble.appendChild(sourcePanel);
                 }
 
-                var feedback = document.createElement('div');
-                feedback.className = 'feedback-buttons';
+                if (responseMode !== 'guide_intro') {
+                    var feedback = document.createElement('div');
+                    feedback.className = 'feedback-buttons';
 
-                var thumbsUp = document.createElement('button');
-                thumbsUp.className = 'feedback-btn';
-                thumbsUp.textContent = '\uD83D\uDC4D';
-                thumbsUp.addEventListener('click', function() { submitFeedback(content, 1, feedback); });
+                    var thumbsUp = document.createElement('button');
+                    thumbsUp.className = 'feedback-btn';
+                    thumbsUp.textContent = '\uD83D\uDC4D';
+                    thumbsUp.addEventListener('click', function() { submitFeedback(content, 1, feedback); });
 
-                var thumbsDown = document.createElement('button');
-                thumbsDown.className = 'feedback-btn';
-                thumbsDown.textContent = '\uD83D\uDC4E';
-                thumbsDown.addEventListener('click', function() { submitFeedback(content, 0, feedback, true); });
+                    var thumbsDown = document.createElement('button');
+                    thumbsDown.className = 'feedback-btn';
+                    thumbsDown.textContent = '\uD83D\uDC4E';
+                    thumbsDown.addEventListener('click', function() { submitFeedback(content, 0, feedback, true); });
 
-                feedback.appendChild(thumbsUp);
-                feedback.appendChild(thumbsDown);
-                bubble.appendChild(feedback);
+                    feedback.appendChild(thumbsUp);
+                    feedback.appendChild(thumbsDown);
+                    bubble.appendChild(feedback);
 
-                var understandBtn = document.createElement('button');
-                understandBtn.className = 'understand-button';
-                understandBtn.textContent = 'Mark as understood \u2713';
-                understandBtn.addEventListener('click', function() {
-                    markConceptAsUnderstood();
-                    understandBtn.remove();
-                });
-                bubble.appendChild(understandBtn);
-
-                if (firstAssistantMessage && answerMode === 'socratic') {
-                    firstAssistantMessage = false;
-                    var modeToggle = document.createElement('button');
-                    modeToggle.className = 'mode-toggle-button';
-                    modeToggle.textContent = 'Give me direct answers instead of food for thought';
-                    modeToggle.addEventListener('click', function() {
-                        answerMode = 'direct';
-                        modeToggle.textContent = 'Direct answers mode \u2713';
-                        modeToggle.disabled = true;
-                        modeToggle.style.opacity = '0.6';
+                    var understandBtn = document.createElement('button');
+                    understandBtn.className = 'understand-button';
+                    understandBtn.textContent = 'Mark as understood \u2713';
+                    understandBtn.addEventListener('click', function() {
+                        markConceptAsUnderstood();
+                        understandBtn.remove();
                     });
-                    bubble.appendChild(modeToggle);
+                    bubble.appendChild(understandBtn);
+
+                    var isProjectBrief = responseMode === 'project_builder' && /(^|\n)## Project Brief\b/.test(content);
+                    var isResearchBrief = responseMode === 'research_innovation' && /(^|\n)## Research Direction Brief\b/.test(content);
+                    if (isProjectBrief || isResearchBrief) {
+                        var saveBrief = document.createElement('button');
+                        saveBrief.className = 'save-brief-button';
+                        saveBrief.textContent = isProjectBrief ? 'Download project brief' : 'Download research direction brief';
+                        saveBrief.addEventListener('click', function() {
+                            downloadBrief(content, isProjectBrief ? 'project-brief' : 'research-direction-brief');
+                        });
+                        bubble.appendChild(saveBrief);
+                    }
+
+                    if (firstAssistantMessage && answerMode === 'socratic' && responseMode === 'course_chat') {
+                        firstAssistantMessage = false;
+                        var modeToggle = document.createElement('button');
+                        modeToggle.className = 'mode-toggle-button';
+                        modeToggle.textContent = 'Give me direct answers instead of food for thought';
+                        modeToggle.addEventListener('click', function() {
+                            answerMode = 'direct';
+                            modeToggle.textContent = 'Direct answers mode \u2713';
+                            modeToggle.disabled = true;
+                            modeToggle.style.opacity = '0.6';
+                        });
+                        bubble.appendChild(modeToggle);
+                    }
                 }
             }
 
             message.appendChild(bubble);
             messagesDiv.appendChild(message);
             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function renderGuideControls() {
+            if (!currentCourse) return;
+            var area = document.getElementById('guide-area');
+            var projectButton = document.getElementById('project-builder-button');
+            var researchButton = document.getElementById('research-innovation-button');
+            var buttons = document.getElementById('guide-buttons');
+            var active = document.getElementById('guide-active');
+
+            projectButton.hidden = !currentCourse.project_builder_enabled;
+            researchButton.hidden = !currentCourse.research_innovation_enabled;
+            area.hidden = projectButton.hidden && researchButton.hidden && guideMode === 'course_chat';
+            buttons.hidden = guideMode !== 'course_chat';
+            active.hidden = guideMode === 'course_chat';
+
+            if (guideMode !== 'course_chat') {
+                document.getElementById('guide-active-name').textContent = guideMode === 'project_builder'
+                    ? 'Project Builder'
+                    : 'Research and Innovation Guide';
+            }
+        }
+
+        function startGuide(mode) {
+            if (!currentCourse) return;
+            if (mode === 'project_builder' && !currentCourse.project_builder_enabled) return;
+            if (mode === 'research_innovation' && !currentCourse.research_innovation_enabled) return;
+
+            guideMode = mode;
+            var prompt;
+            if (mode === 'project_builder') {
+                prompt = 'With real understanding, course ideas can become things you build, test, or analyze. What course topic, question, or recent conversation would you like to turn into a project?';
+            } else {
+                prompt = 'Let’s examine a course idea one question at a time and develop a possible research direction. Novelty would still need to be checked separately. What course topic or question would you like to investigate?';
+            }
+            addMessage('assistant', prompt, [], 'guide_intro');
+            messageHistory.push({role: 'assistant', content: prompt});
+            document.getElementById('input-textarea').placeholder = mode === 'project_builder'
+                ? 'Name a topic or question to build from...'
+                : 'Name a topic or question to investigate...';
+            renderGuideControls();
+            document.getElementById('input-textarea').focus();
+        }
+
+        function exitGuide() {
+            guideMode = 'course_chat';
+            var notice = 'You are back in regular course chat.';
+            addMessage('assistant', notice, [], 'guide_intro');
+            messageHistory.push({role: 'assistant', content: notice});
+            if (currentCourse) {
+                document.getElementById('input-textarea').placeholder = 'Ask about ' + currentCourse.code + '...';
+            }
+            renderGuideControls();
+        }
+
+        function downloadBrief(content, filename) {
+            var blob = new Blob([content + '\n'], {type: 'text/plain;charset=utf-8'});
+            var url = URL.createObjectURL(blob);
+            var link = document.createElement('a');
+            link.href = url;
+            link.download = filename + '.txt';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
         }
 
         function addTypingIndicator() {
@@ -890,6 +1035,16 @@
         document.getElementById('send-button').addEventListener('click', function() {
             sendMessage(document.getElementById('input-textarea').value);
         });
+
+        document.getElementById('project-builder-button').addEventListener('click', function() {
+            startGuide('project_builder');
+        });
+
+        document.getElementById('research-innovation-button').addEventListener('click', function() {
+            startGuide('research_innovation');
+        });
+
+        document.getElementById('guide-exit-button').addEventListener('click', exitGuide);
 
         document.getElementById('input-textarea').addEventListener('keydown', function(e) {
             if (e.key === 'Enter' && !e.shiftKey) {

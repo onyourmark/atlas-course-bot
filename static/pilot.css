@@ -267,6 +267,28 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
 .model-form .field { margin: 0; }
 .model-note { margin: 10px 0 5px; }
 
+.feature-settings {
+    margin-top: 18px;
+    padding: 16px;
+    background: var(--wash);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+}
+.feature-form { display: grid; gap: 10px; margin-top: 12px; }
+.feature-option {
+    display: flex;
+    align-items: start;
+    gap: 10px;
+    padding: 12px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    cursor: pointer;
+}
+.feature-option input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--red); }
+.feature-copy { display: grid; gap: 2px; }
+.feature-note { margin-top: 10px; }
+
 .usage-row {
     display: flex;
     justify-content: space-between;

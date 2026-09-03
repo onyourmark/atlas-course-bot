@@ -323,6 +323,13 @@ class PilotStore:
                     FOREIGN KEY (professor_id) REFERENCES professors(id)
                 );
 
+                CREATE TABLE IF NOT EXISTS legacy_course_features (
+                    course_id TEXT PRIMARY KEY,
+                    project_builder_enabled INTEGER NOT NULL DEFAULT 1,
+                    research_innovation_enabled INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_courses_owner
                     ON courses(owner_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_expires
@@ -881,6 +888,61 @@ class PilotStore:
             if result.rowcount != 1:
                 raise PilotValidationError("Course not found.")
         return self.get_course(course_id)
+
+    def legacy_course_features(self, course_id: str) -> Dict:
+        """Return persistent guide settings for a repository-backed course."""
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT project_builder_enabled, research_innovation_enabled,
+                       updated_at
+                FROM legacy_course_features
+                WHERE course_id = ?
+                """,
+                (course_id,),
+            ).fetchone()
+        if not row:
+            return {
+                "project_builder_enabled": True,
+                "research_innovation_enabled": False,
+                "updated_at": None,
+            }
+        return {
+            "project_builder_enabled": bool(row["project_builder_enabled"]),
+            "research_innovation_enabled": bool(
+                row["research_innovation_enabled"]
+            ),
+            "updated_at": row["updated_at"],
+        }
+
+    def set_legacy_course_features(
+        self,
+        course_id: str,
+        project_builder_enabled: bool,
+        research_innovation_enabled: bool,
+    ) -> Dict:
+        """Persist guide settings for a repository-backed legacy course."""
+        now = utc_now()
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO legacy_course_features
+                    (course_id, project_builder_enabled,
+                     research_innovation_enabled, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(course_id) DO UPDATE SET
+                    project_builder_enabled = excluded.project_builder_enabled,
+                    research_innovation_enabled = excluded.research_innovation_enabled,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    course_id,
+                    int(bool(project_builder_enabled)),
+                    int(bool(research_innovation_enabled)),
+                    now,
+                ),
+            )
+        return self.legacy_course_features(course_id)
 
     def set_course_model(
         self,

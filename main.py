@@ -258,6 +258,14 @@ async def lifespan(app: FastAPI):
 
     if PILOT_ENABLED:
         PILOT_STORE = build_store_from_environment()
+        for course_id, config in COURSES.items():
+            features = PILOT_STORE.legacy_course_features(course_id)
+            config["_project_builder_enabled"] = features[
+                "project_builder_enabled"
+            ]
+            config["_research_innovation_enabled"] = features[
+                "research_innovation_enabled"
+            ]
         pilot_courses = PILOT_STORE.list_all_courses()
         for course in pilot_courses:
             _reload_pilot_course(course["id"])
@@ -1600,6 +1608,18 @@ async def admin_list_courses(request: Request, key: Optional[str] = None):
         result.append({
             "id": course_id,
             **config,
+            "project_builder_enabled": bool(
+                config.get(
+                    "_project_builder_enabled",
+                    config.get("project_builder_enabled", True),
+                )
+            ),
+            "research_innovation_enabled": bool(
+                config.get(
+                    "_research_innovation_enabled",
+                    config.get("research_innovation_enabled", False),
+                )
+            ),
             "has_syllabus": syllabus_exists,
             "transcript_files": transcript_files,
             "transcript_count": len(transcript_files),
@@ -1608,6 +1628,40 @@ async def admin_list_courses(request: Request, key: Optional[str] = None):
         })
 
     return {"courses": result}
+
+
+@app.put("/api/admin/courses/{course_id}/features")
+async def admin_set_legacy_course_features(
+    course_id: str,
+    request: Request,
+    payload: FacultyCourseFeaturesRequest,
+    key: Optional[str] = None,
+):
+    """Change guide visibility for an original repository-backed course."""
+    _check_admin_access(request, key)
+    config = _validate_legacy_course(course_id)
+    if PILOT_STORE is not None:
+        features = PILOT_STORE.set_legacy_course_features(
+            course_id=course_id,
+            project_builder_enabled=payload.project_builder_enabled,
+            research_innovation_enabled=payload.research_innovation_enabled,
+        )
+    else:
+        features = {
+            "project_builder_enabled": payload.project_builder_enabled,
+            "research_innovation_enabled": payload.research_innovation_enabled,
+            "updated_at": None,
+        }
+    config["_project_builder_enabled"] = features[
+        "project_builder_enabled"
+    ]
+    config["_research_innovation_enabled"] = features[
+        "research_innovation_enabled"
+    ]
+    return {
+        "course_id": course_id,
+        **features,
+    }
 
 
 @app.post("/api/admin/upload/syllabus")

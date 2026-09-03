@@ -95,7 +95,7 @@ Each course has two independent student-guide settings. Project Builder is on by
 
 The Research and Innovation Guide is off by default. When a professor enables it, the guide uses a one-question-at-a-time process to examine assumptions, limitations, hypotheses, comparisons, and possible tests. It never represents an idea as novel without a separate literature review.
 
-A professor can change either setting while a course is running. Students see the new buttons after refreshing the course page. Changing a guide setting does not alter uploaded documents, the concept map, prior usage, or any downloaded briefs.
+A professor can change either setting while a course is running. Pilot-course settings are in the faculty dashboard. The original repository-backed courses, including INFO6105, use the Student Guides section in Legacy course materials. Students see the new buttons after refreshing the course page. Changing a guide setting does not alter uploaded documents, the concept map, prior usage, or any downloaded briefs.
 
 ## Course documents and privacy
 

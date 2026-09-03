@@ -96,6 +96,16 @@ class CourseFeatureStoreTests(unittest.TestCase):
                 course["id"], self.other["id"], True, True
             )
 
+    def test_legacy_course_feature_settings_are_persistent(self):
+        defaults = self.store.legacy_course_features("6105")
+        self.assertTrue(defaults["project_builder_enabled"])
+        self.assertFalse(defaults["research_innovation_enabled"])
+
+        updated = self.store.set_legacy_course_features("6105", False, True)
+        self.assertFalse(updated["project_builder_enabled"])
+        self.assertTrue(updated["research_innovation_enabled"])
+        self.assertEqual(self.store.legacy_course_features("6105"), updated)
+
 
 class GuideChatTests(unittest.TestCase):
     def setUp(self):
@@ -199,6 +209,7 @@ class GuideInterfaceTests(unittest.TestCase):
         base = Path(main.__file__).parent
         course_html = (base / "static" / "course.html").read_text()
         faculty_html = (base / "static" / "faculty.html").read_text()
+        legacy_materials_html = (base / "static" / "upload.html").read_text()
 
         self.assertIn("Turn this into a project", course_html)
         self.assertIn("research-innovation-button", course_html)
@@ -207,6 +218,8 @@ class GuideInterfaceTests(unittest.TestCase):
         self.assertIn("Save guide settings", faculty_html)
         self.assertIn("project_builder_enabled", faculty_html)
         self.assertIn("research_innovation_enabled", faculty_html)
+        self.assertIn("Save guide settings", legacy_materials_html)
+        self.assertIn("project_builder_enabled", legacy_materials_html)
 
 
 if __name__ == "__main__":

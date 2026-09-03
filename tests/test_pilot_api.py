@@ -105,6 +105,33 @@ class PilotApiFlowTests(unittest.TestCase):
         self.assertEqual(admin_page.headers["referrer-policy"], "no-referrer")
         self.assertEqual(self.client.get("/admin/upload").status_code, 200)
 
+        legacy_courses = self.client.get("/api/admin/courses").json()["courses"]
+        legacy_6105 = next(
+            course for course in legacy_courses if course["id"] == "6105"
+        )
+        self.assertTrue(legacy_6105["project_builder_enabled"])
+        self.assertFalse(legacy_6105["research_innovation_enabled"])
+        changed_legacy_features = self.json_request(
+            "PUT",
+            "/api/admin/courses/6105/features",
+            {
+                "project_builder_enabled": False,
+                "research_innovation_enabled": True,
+            },
+        )
+        self.assertEqual(changed_legacy_features.status_code, 200)
+        legacy_metadata = self.client.get("/course/6105/metadata").json()
+        self.assertFalse(legacy_metadata["project_builder_enabled"])
+        self.assertTrue(legacy_metadata["research_innovation_enabled"])
+        self.json_request(
+            "PUT",
+            "/api/admin/courses/6105/features",
+            {
+                "project_builder_enabled": True,
+                "research_innovation_enabled": False,
+            },
+        )
+
         invitation = self.json_request(
             "POST",
             "/api/pilot-admin/invitations",

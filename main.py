@@ -81,6 +81,53 @@ FEEDBACK_FILE = DATA_DIR / "feedback.json"
 NO_MATERIALS_RESPONSE = (
     "The course materials I searched do not contain an answer to that question."
 )
+PROJECT_BUILDER_PROMPT = """
+
+## Active workflow: Project Builder
+
+The student deliberately selected Project Builder. Help them convert genuine
+understanding of this course material into a feasible project. Continue this
+workflow across the conversation until the student asks to leave it.
+
+- Ask exactly one concise question at a time while clarifying the topic, the
+  student's interests, the intended deliverable, available time, and practical
+  constraints. Do not make all the important choices for the student.
+- Ground every proposed direction in the supplied course excerpts and the course
+  concept map. Connect the project to concepts the student has actually discussed.
+- After the initial clarification, offer two or three distinct, realistic project
+  directions and ask the student to choose or revise one before building the brief.
+- Once you have enough information, or when the student asks for the plan, provide
+  a section titled "## Project Brief" with: driving question, course concepts and
+  source connection, concrete deliverable, three to five stages, a way to evaluate
+  the result, and one optional stretch direction.
+- Keep the scope realistic. State assumptions plainly and never invent a course
+  source, assignment requirement, dataset, quotation, or professor preference.
+- The interface shows source titles and excerpts separately. Do not fabricate
+  citations or claim support beyond those excerpts.
+"""
+RESEARCH_INNOVATION_PROMPT = """
+
+## Active workflow: Research and Innovation Guide
+
+The student deliberately selected the Research and Innovation Guide. Use a
+Socratic process to help the student formulate a possible research direction
+from course material, while leaving the intellectual decisions to the student.
+
+- Ask exactly one concise question at a time. Progress through understanding,
+  assumptions, limitations, why a limitation matters, a possible variation or
+  hypothesis, a comparison or baseline, and evidence that could test the idea.
+- Ground the discussion in the supplied course excerpts and concept map. Do not
+  import facts, studies, datasets, or claims from outside the course materials.
+- Never call an idea novel or an innovation merely because it is absent from the
+  supplied materials. Say that novelty has not been verified and would require a
+  literature review and consultation with the instructor.
+- Once the direction is sufficiently developed, or when the student asks for it,
+  provide a section titled "## Research Direction Brief" containing the question,
+  course foundation, assumption or limitation, tentative hypothesis, proposed
+  test, comparison, evidence, and the unverified-novelty caution.
+- The interface shows source titles and excerpts separately. Do not fabricate
+  citations or claim support beyond those excerpts.
+"""
 
 
 # -- Pydantic Models --
@@ -96,6 +143,9 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     history: Optional[List[ChatMessage]] = Field(default=None, max_length=12)
     session_id: Optional[str] = Field(default=None, max_length=100)
+    mode: Literal[
+        "course_chat", "project_builder", "research_innovation"
+    ] = "course_chat"
 
 
 class FeedbackRequest(BaseModel):
@@ -141,6 +191,11 @@ class FacultyCourseStatusRequest(BaseModel):
 class FacultyCourseModelRequest(BaseModel):
     provider: Literal["anthropic", "openai"]
     model: str = Field(min_length=1, max_length=100)
+
+
+class FacultyCourseFeaturesRequest(BaseModel):
+    project_builder_enabled: bool
+    research_innovation_enabled: bool
 
 
 class PilotAdminLoginRequest(BaseModel):
@@ -282,6 +337,10 @@ def _pilot_course_config(course: Dict) -> Dict:
         "_list_on_homepage": False,
         "_provider": course.get("provider") or "anthropic",
         "_model": course.get("model") or MODEL,
+        "_project_builder_enabled": bool(course.get("project_builder_enabled", 1)),
+        "_research_innovation_enabled": bool(
+            course.get("research_innovation_enabled", 0)
+        ),
     }
 
 
@@ -473,6 +532,18 @@ def _public_course_config(course_id: str, config: Dict) -> Dict:
         "campus": config.get("campus", ""),
         "term": config.get("term", ""),
         "section": config.get("section", ""),
+        "project_builder_enabled": bool(
+            config.get(
+                "_project_builder_enabled",
+                config.get("project_builder_enabled", True),
+            )
+        ),
+        "research_innovation_enabled": bool(
+            config.get(
+                "_research_innovation_enabled",
+                config.get("research_innovation_enabled", False),
+            )
+        ),
     }
 
 
@@ -496,6 +567,10 @@ def _faculty_course_payload(store: PilotStore, course: Dict) -> Dict:
             course.get("provider") or "anthropic", course.get("model") or MODEL
         ),
         "model_updated_at": course.get("model_updated_at"),
+        "project_builder_enabled": bool(course.get("project_builder_enabled", 1)),
+        "research_innovation_enabled": bool(
+            course.get("research_innovation_enabled", 0)
+        ),
         "model_history": store.course_model_history(
             course["id"], course["owner_id"], limit=10
         ),
@@ -588,6 +663,65 @@ def _build_retrieval_query(message: str, history: Optional[List[ChatMessage]]) -
     return prior_questions[-1] + "\n" + message
 
 
+def _guide_source_matches(
+    message: str,
+    history: Optional[List[ChatMessage]],
+    chunks: List[Dict],
+    max_chunks: int = 3,
+) -> List[Dict]:
+    """Retrieve guide sources from the current reply and recent student context."""
+    queries = [message]
+    if history:
+        queries.extend(
+            item.content
+            for item in reversed(history)
+            if item.role == "user" and item.content.strip()
+        )
+
+    matches: List[Dict] = []
+    used_sources = set()
+    for query in queries:
+        for match in search_chunk_matches(query, chunks, max_chunks=max_chunks):
+            source_key = (match["source_type"], match["source"])
+            if source_key in used_sources:
+                continue
+            used_sources.add(source_key)
+            matches.append(match)
+            if len(matches) >= max_chunks:
+                return matches
+    return matches
+
+
+def _guide_prompt(mode: str) -> str:
+    if mode == "project_builder":
+        return PROJECT_BUILDER_PROMPT
+    if mode == "research_innovation":
+        return RESEARCH_INNOVATION_PROMPT
+    return ""
+
+
+def _require_enabled_guide(config: Dict, mode: str) -> None:
+    if mode == "project_builder":
+        enabled = config.get(
+            "_project_builder_enabled",
+            config.get("project_builder_enabled", True),
+        )
+        label = "Project Builder"
+    elif mode == "research_innovation":
+        enabled = config.get(
+            "_research_innovation_enabled",
+            config.get("research_innovation_enabled", False),
+        )
+        label = "Research and Innovation Guide"
+    else:
+        return
+    if not bool(enabled):
+        raise HTTPException(
+            status_code=403,
+            detail=f"{label} is not enabled for this course.",
+        )
+
+
 # -- Routes --
 
 @app.get("/")
@@ -619,7 +753,10 @@ async def get_courses():
 async def get_course_metadata(course_id: str):
     """Return safe metadata for one accessible course, including private-link courses."""
     config = _validate_course(course_id)
-    return _public_course_config(course_id, config)
+    return JSONResponse(
+        _public_course_config(course_id, config),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/course/{course_id}")
@@ -641,6 +778,7 @@ async def chat(course_id: str, request: ChatRequest):
     Main chat endpoint. Processes a user message and returns an AI response.
     """
     config = _validate_course(course_id)
+    _require_enabled_guide(config, request.mode)
     session_id = _safe_session_id(request.session_id)
 
     system_prompt = SYSTEM_PROMPTS.get(course_id, "")
@@ -651,11 +789,20 @@ async def chat(course_id: str, request: ChatRequest):
             status_code=500,
             detail=f"System prompt not initialized for course {course_id}"
         )
+    system_prompt += _guide_prompt(request.mode)
 
     # Search the syllabus and transcripts. Ordinary question words are ignored so
     # an unrelated source is not presented merely because it contains "what".
     retrieval_query = _build_retrieval_query(request.message, request.history)
-    source_matches = search_chunk_matches(retrieval_query, chunks, max_chunks=3)
+    if request.mode == "course_chat":
+        source_matches = search_chunk_matches(retrieval_query, chunks, max_chunks=3)
+    else:
+        source_matches = _guide_source_matches(
+            request.message,
+            request.history,
+            chunks,
+            max_chunks=3,
+        )
     source_payload = [
         {
             "name": match["display_name"],
@@ -671,6 +818,7 @@ async def chat(course_id: str, request: ChatRequest):
         return JSONResponse({
             "session_id": session_id,
             "course_id": course_id,
+            "mode": request.mode,
             "response": NO_MATERIALS_RESPONSE,
             "sources": [],
             "materials_found": False,
@@ -742,6 +890,7 @@ async def chat(course_id: str, request: ChatRequest):
         return JSONResponse({
             "session_id": session_id,
             "course_id": course_id,
+            "mode": request.mode,
             "response": assistant_message,
             "sources": source_payload,
             "materials_found": bool(source_payload),
@@ -1118,6 +1267,24 @@ async def faculty_set_course_model(
         owner_id=professor["id"],
         provider=payload.provider,
         model=payload.model,
+    )
+    _reload_pilot_course(course_id)
+    return _faculty_course_payload(store, updated)
+
+
+@app.put("/api/faculty/courses/{course_id}/features")
+async def faculty_set_course_features(
+    course_id: str,
+    request: Request,
+    payload: FacultyCourseFeaturesRequest,
+):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    updated = store.set_course_features(
+        course_id=course_id,
+        owner_id=professor["id"],
+        project_builder_enabled=payload.project_builder_enabled,
+        research_innovation_enabled=payload.research_innovation_enabled,
     )
     _reload_pilot_course(course_id)
     return _faculty_course_payload(store, updated)

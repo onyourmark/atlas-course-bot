@@ -255,6 +255,8 @@ class PilotStore:
                     provider TEXT NOT NULL DEFAULT 'anthropic',
                     model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6',
                     model_updated_at TEXT,
+                    project_builder_enabled INTEGER NOT NULL DEFAULT 1,
+                    research_innovation_enabled INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY (owner_id) REFERENCES professors(id)
@@ -360,6 +362,20 @@ class PilotStore:
             if "model_updated_at" not in course_columns:
                 connection.execute(
                     "ALTER TABLE courses ADD COLUMN model_updated_at TEXT"
+                )
+            if "project_builder_enabled" not in course_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE courses
+                    ADD COLUMN project_builder_enabled INTEGER NOT NULL DEFAULT 1
+                    """
+                )
+            if "research_innovation_enabled" not in course_columns:
+                connection.execute(
+                    """
+                    ALTER TABLE courses
+                    ADD COLUMN research_innovation_enabled INTEGER NOT NULL DEFAULT 0
+                    """
                 )
             usage_columns = {
                 row["name"]
@@ -832,6 +848,35 @@ class PilotStore:
                 WHERE id = ? AND owner_id = ?
                 """,
                 (status, utc_now(), course_id, owner_id),
+            )
+            if result.rowcount != 1:
+                raise PilotValidationError("Course not found.")
+        return self.get_course(course_id)
+
+    def set_course_features(
+        self,
+        course_id: str,
+        owner_id: str,
+        project_builder_enabled: bool,
+        research_innovation_enabled: bool,
+    ) -> Dict:
+        """Update student guide visibility without changing any course content."""
+        with self._connect() as connection:
+            result = connection.execute(
+                """
+                UPDATE courses
+                SET project_builder_enabled = ?,
+                    research_innovation_enabled = ?,
+                    updated_at = ?
+                WHERE id = ? AND owner_id = ?
+                """,
+                (
+                    int(bool(project_builder_enabled)),
+                    int(bool(research_innovation_enabled)),
+                    utc_now(),
+                    course_id,
+                    owner_id,
+                ),
             )
             if result.rowcount != 1:
                 raise PilotValidationError("Course not found.")

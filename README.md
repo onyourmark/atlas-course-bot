@@ -89,6 +89,14 @@ ATLAS only permits a course to use Anthropic when that professor has saved an An
 
 The faculty dashboard presents a short list of current general-purpose models from each provider. Existing pilot courses remain on Claude Sonnet 4.6 until their professor changes them. New Anthropic courses default to Claude Sonnet 5, and new OpenAI courses default to GPT-5.6 Terra.
 
+## Course learning guides
+
+Each course has two independent student-guide settings. Project Builder is on by default and helps a student turn a course topic or recent question into a realistic project. It asks one scoping question at a time, offers two or three course-grounded directions, and develops the student's choice into a downloadable project brief.
+
+The Research and Innovation Guide is off by default. When a professor enables it, the guide uses a one-question-at-a-time process to examine assumptions, limitations, hypotheses, comparisons, and possible tests. It never represents an idea as novel without a separate literature review.
+
+A professor can change either setting while a course is running. Students see the new buttons after refreshing the course page. Changing a guide setting does not alter uploaded documents, the concept map, prior usage, or any downloaded briefs.
+
 ## Course documents and privacy
 
 Accepted file types are `.docx`, `.md`, `.pdf`, `.pptx`, and `.txt`. Each file is limited to 25 MB and one million extracted characters. Each course is limited to 100 documents, 250 MB, and five million extracted characters. A professor can create up to ten pilot courses. Readable text is extracted when the professor uploads the file.

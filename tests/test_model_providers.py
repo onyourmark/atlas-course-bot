@@ -224,6 +224,8 @@ class ProviderStoreTests(unittest.TestCase):
             professor = store.get_professor("p_old")
             self.assertEqual(course["provider"], "anthropic")
             self.assertEqual(course["model"], "claude-sonnet-4-6")
+            self.assertEqual(course["project_builder_enabled"], 1)
+            self.assertEqual(course["research_innovation_enabled"], 0)
             self.assertFalse(professor["api_keys"]["openai"]["has_key"])
             self.assertEqual(
                 store.monthly_usage("c_old")["by_model"][0]["provider"],

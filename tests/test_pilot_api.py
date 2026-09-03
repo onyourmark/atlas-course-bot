@@ -163,6 +163,29 @@ class PilotApiFlowTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201)
         course_id = created.json()["id"]
         self.assertTrue(course_id.startswith("c_"))
+        self.assertTrue(created.json()["project_builder_enabled"])
+        self.assertFalse(created.json()["research_innovation_enabled"])
+
+        changed_features = self.json_request(
+            "PUT",
+            f"/api/faculty/courses/{course_id}/features",
+            {
+                "project_builder_enabled": False,
+                "research_innovation_enabled": True,
+            },
+        )
+        self.assertEqual(changed_features.status_code, 200)
+        self.assertFalse(changed_features.json()["project_builder_enabled"])
+        self.assertTrue(changed_features.json()["research_innovation_enabled"])
+        restored_features = self.json_request(
+            "PUT",
+            f"/api/faculty/courses/{course_id}/features",
+            {
+                "project_builder_enabled": True,
+                "research_innovation_enabled": False,
+            },
+        )
+        self.assertEqual(restored_features.status_code, 200)
         self.assertEqual(
             self.client.get(f"/course/{course_id}/metadata").status_code,
             404,
@@ -203,6 +226,9 @@ class PilotApiFlowTests(unittest.TestCase):
             self.client.get(f"/course/{course_id}/metadata").status_code,
             200,
         )
+        metadata = self.client.get(f"/course/{course_id}/metadata").json()
+        self.assertTrue(metadata["project_builder_enabled"])
+        self.assertFalse(metadata["research_innovation_enabled"])
         concept_map = self.client.get(f"/course/{course_id}/concept-map").json()
         self.assertEqual(len(concept_map["concepts"]), 2)
         public_ids = {

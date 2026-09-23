@@ -4,6 +4,7 @@ Multi-course aware module for loading course materials, transcripts, and buildin
 """
 
 import json
+import math
 import re
 from collections import Counter
 from pathlib import Path
@@ -286,18 +287,42 @@ def search_chunk_matches(
         word.lower() for word in re.findall(r"\b[A-Z][A-Za-z0-9_-]*\b", query)
         if word.lower() in terms
     }
+    chunk_words = [
+        Counter(re.findall(r"\b[A-Za-z0-9][A-Za-z0-9_-]*\b", chunk["text"].lower()))
+        for chunk in chunks
+    ]
+    frequencies = {
+        term: sum(1 for words in chunk_words if words[term])
+        for term in terms
+    }
+    # A rare named topic must not be displaced by common surrounding words.
+    # Count across the whole course, rather than guessing from capitalization
+    # alone which of several capitalized words is the specific subject.
+    # Sentence-initial verbs such as "Investigate" are not named topics.
+    first_word = re.search(r"\b[A-Za-z0-9][A-Za-z0-9_-]*\b", query)
+    if first_word and not frequencies.get(first_word.group().lower(), 0):
+        named_terms.discard(first_word.group().lower())
+    anchors = set()
+    if named_terms:
+        rarest_frequency = min(frequencies[term] for term in named_terms)
+        anchors = {term for term in named_terms
+                   if frequencies[term] == rarest_frequency}
+
     scored = []
-    for chunk in chunks:
-        words = Counter(re.findall(r"\b[A-Za-z0-9][A-Za-z0-9_-]*\b", chunk["text"].lower()))
+    for chunk, words in zip(chunks, chunk_words):
         matched_terms = [term for term in terms if words[term] > 0]
+        if anchors and not anchors.issubset(matched_terms):
+            continue
         required_term_count = 1 if len(terms) == 1 else 2
-        named_topic_match = bool(named_terms) and named_terms.issubset(matched_terms)
+        named_topic_match = bool(anchors) and anchors.issubset(matched_terms)
         if len(matched_terms) < required_term_count and not named_topic_match:
             continue
 
-        distinct_match_score = len(matched_terms) * 10
-        occurrence_score = sum(min(words[term], 5) for term in matched_terms)
-        score = distinct_match_score + occurrence_score
+        score = sum(
+            (math.log(1 + len(chunks) / (1 + frequencies[term])) + 1)
+            * (1 + 0.1 * min(words[term], 5))
+            for term in matched_terms
+        )
         scored.append((score, chunk, matched_terms))
 
     scored.sort(key=lambda item: (-item[0], item[1]["display_name"], item[1]["chunk_idx"]))

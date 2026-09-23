@@ -39,3 +39,20 @@ def test_existing_misdecoded_transcript_recovers_from_original(tmp_path):
     assert transcripts["lecture.txt"] == original.decode("utf-16")
     assert search_chunk_matches("How can Jev be used in agentic development?",
                                 build_course_chunks("", transcripts))
+
+
+def test_specific_topic_beats_repeated_general_course_terms():
+    general = "Agentic AI uses an agentic AI loop with actions and observations. " * 150
+    chunks = build_course_chunks("", {
+        "chapter1.txt": general,
+        "lecture.txt": "Jev selects a model or action from supplied choices.",
+    })
+    for question in (
+        "How can Jev be used in Agentic AI?",
+        "How can Jev be used in agentic AI?",
+        "How can Jev be used in agentic development?",
+    ):
+        matches = search_chunk_matches(question, chunks, max_chunks=3)
+        assert matches
+        assert all("Jev" in match["text"] for match in matches)
+    assert not search_chunk_matches("How can Saturn be used in Agentic AI?", chunks)

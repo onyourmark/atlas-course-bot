@@ -1262,6 +1262,18 @@ async def faculty_create_course(
     )
 
 
+@app.delete("/api/faculty/courses/{course_id}")
+async def faculty_delete_course(course_id: str, request: Request):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    store.delete_empty_draft_course(course_id, professor["id"])
+    COURSES.pop(course_id, None)
+    CONCEPT_MAPS.pop(course_id, None)
+    COURSE_SOURCE_CHUNKS.pop(course_id, None)
+    SYSTEM_PROMPTS.pop(course_id, None)
+    return {"status": "deleted"}
+
+
 @app.put("/api/faculty/courses/{course_id}/model")
 async def faculty_set_course_model(
     course_id: str,

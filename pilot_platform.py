@@ -16,6 +16,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -769,15 +770,6 @@ class PilotStore:
     ) -> Dict:
         if not self.get_professor(owner_id):
             raise PilotValidationError("Professor account not found.")
-        with self._connect() as connection:
-            course_count = connection.execute(
-                "SELECT COUNT(*) AS count FROM courses WHERE owner_id = ?",
-                (owner_id,),
-            ).fetchone()["count"]
-        if int(course_count) >= MAX_COURSES_PER_PROFESSOR:
-            raise PilotValidationError(
-                f"Each professor can create at most {MAX_COURSES_PER_PROFESSOR} courses."
-            )
         clean_name = _clean_text(name, "Course name", 160)
         clean_code = _clean_text(code, "Course code", 40).upper()
         clean_term = _clean_text(term, "Term", 80)
@@ -791,6 +783,25 @@ class PilotStore:
         course_id = "c_" + secrets.token_urlsafe(20)
         now = utc_now()
         with self._connect() as connection:
+            course_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM courses WHERE owner_id = ?",
+                (owner_id,),
+            ).fetchone()["count"]
+            if int(course_count) >= MAX_COURSES_PER_PROFESSOR:
+                raise PilotValidationError(
+                    f"Each professor can create at most {MAX_COURSES_PER_PROFESSOR} courses."
+                )
+            duplicate = connection.execute(
+                """
+                SELECT id FROM courses
+                WHERE owner_id = ? AND code = ? AND term = ? AND section = ?
+                """,
+                (owner_id, clean_code, clean_term, clean_section),
+            ).fetchone()
+            if duplicate:
+                raise PilotValidationError(
+                    "A course with this code, term, and section already exists."
+                )
             connection.execute(
                 """
                 INSERT INTO courses
@@ -818,6 +829,50 @@ class PilotStore:
         (self.courses_dir / course_id / "originals").mkdir(parents=True, exist_ok=True)
         (self.courses_dir / course_id / "extracted").mkdir(parents=True, exist_ok=True)
         return self.get_course(course_id)
+
+    def delete_empty_draft_course(self, course_id: str, owner_id: str) -> None:
+        """Delete an unused draft owned by the professor.
+
+        Courses with documents, usage, feedback, a concept map, or published
+        history must be kept. This narrow operation is intended for accidental
+        duplicate course creation.
+        """
+        with self._connect() as connection:
+            course = connection.execute(
+                "SELECT * FROM courses WHERE id = ? AND owner_id = ?",
+                (course_id, owner_id),
+            ).fetchone()
+            if not course:
+                raise PilotValidationError("Course not found.")
+            if course["status"] != "draft":
+                raise PilotValidationError("Only a draft course can be deleted.")
+            document_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM documents WHERE course_id = ?",
+                (course_id,),
+            ).fetchone()["count"]
+            usage_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM usage_events WHERE course_id = ?",
+                (course_id,),
+            ).fetchone()["count"]
+            feedback_count = connection.execute(
+                "SELECT COUNT(*) AS count FROM pilot_feedback WHERE course_id = ?",
+                (course_id,),
+            ).fetchone()["count"]
+            has_concept_map = bool(json.loads(course["concept_map_json"] or "{}"))
+            if document_count or usage_count or feedback_count or has_concept_map:
+                raise PilotValidationError(
+                    "Only an empty draft course can be deleted."
+                )
+            connection.execute(
+                "DELETE FROM courses WHERE id = ? AND owner_id = ?",
+                (course_id, owner_id),
+            )
+
+        course_dir = (self.courses_dir / course_id).resolve()
+        if course_dir.parent != self.courses_dir.resolve():
+            raise PilotConfigurationError("Invalid course storage path.")
+        if course_dir.exists():
+            shutil.rmtree(course_dir)
 
     def get_course(self, course_id: str) -> Optional[Dict]:
         with self._connect() as connection:

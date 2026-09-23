@@ -193,6 +193,47 @@ class PilotApiFlowTests(unittest.TestCase):
         self.assertTrue(created.json()["project_builder_enabled"])
         self.assertFalse(created.json()["research_innovation_enabled"])
 
+        duplicate = self.json_request(
+            "POST",
+            "/api/faculty/courses",
+            {
+                "name": "Pilot Test Course",
+                "code": "TEST 1000",
+                "term": "Fall 2026",
+                "section": "01",
+                "campus": "Arlington",
+                "monthly_question_limit": 1,
+            },
+        )
+        self.assertEqual(duplicate.status_code, 400)
+        self.assertIn("already exists", duplicate.text)
+
+        spare = self.json_request(
+            "POST",
+            "/api/faculty/courses",
+            {
+                "name": "Accidental Empty Draft",
+                "code": "TEST 2000",
+                "term": "Fall 2026",
+                "section": "01",
+                "campus": "Arlington",
+                "monthly_question_limit": 1,
+            },
+        )
+        self.assertEqual(spare.status_code, 201)
+        deleted = self.client.delete(
+            f"/api/faculty/courses/{spare.json()['id']}"
+        )
+        self.assertEqual(deleted.status_code, 200)
+        self.assertEqual(deleted.json()["status"], "deleted")
+        self.assertNotIn(
+            spare.json()["id"],
+            {
+                item["id"]
+                for item in self.client.get("/api/faculty/courses").json()["courses"]
+            },
+        )
+
         changed_features = self.json_request(
             "PUT",
             f"/api/faculty/courses/{course_id}/features",

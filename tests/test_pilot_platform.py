@@ -113,6 +113,40 @@ class PilotStoreTests(unittest.TestCase):
                 document["id"], course["id"], second["id"]
             )
 
+    def test_empty_draft_course_can_be_deleted_but_used_course_cannot(self):
+        professor = self.join_professor()
+        course = self.store.create_course(
+            professor["id"], "Test Course", "TEST 1000", "Fall 2026"
+        )
+        course_dir = self.store.courses_dir / course["id"]
+        self.assertTrue(course_dir.exists())
+
+        self.store.delete_empty_draft_course(course["id"], professor["id"])
+        self.assertIsNone(self.store.get_course(course["id"]))
+        self.assertFalse(course_dir.exists())
+
+        used_course = self.store.create_course(
+            professor["id"], "Used Course", "TEST 2000", "Fall 2026"
+        )
+        self.store.save_document(
+            used_course["id"], professor["id"], "syllabus.txt", "syllabus",
+            b"Course material", "Course material"
+        )
+        with self.assertRaisesRegex(PilotValidationError, "empty draft"):
+            self.store.delete_empty_draft_course(
+                used_course["id"], professor["id"]
+            )
+
+    def test_identical_course_cannot_be_created_twice(self):
+        professor = self.join_professor()
+        self.store.create_course(
+            professor["id"], "Test Course", "TEST 1000", "Fall 2026", "01"
+        )
+        with self.assertRaisesRegex(PilotValidationError, "already exists"):
+            self.store.create_course(
+                professor["id"], "Test Course", "TEST 1000", "Fall 2026", "01"
+            )
+
     def test_sessions_and_monthly_usage(self):
         professor = self.join_professor()
         token = self.store.create_session("professor", professor["id"])

@@ -451,6 +451,34 @@
             });
             actions.appendChild(statusButton);
 
+            if (
+                course.status === 'draft' &&
+                course.documents.length === 0 &&
+                course.usage.input_tokens === 0 &&
+                course.usage.output_tokens === 0 &&
+                course.concept_count === 0
+            ) {
+                const deleteButton = element('button', 'button danger', 'Delete empty draft');
+                deleteButton.type = 'button';
+                deleteButton.addEventListener('click', async () => {
+                    if (!window.confirm(
+                        'Delete the empty draft ' + course.code + ' (' + course.term + ')?'
+                    )) return;
+                    deleteButton.disabled = true;
+                    try {
+                        await api('/api/faculty/courses/' + encodeURIComponent(course.id), {
+                            method: 'DELETE'
+                        });
+                        notify('Empty draft course deleted.');
+                        await loadCourses();
+                    } catch (error) {
+                        notify(error.message, 'error');
+                        deleteButton.disabled = false;
+                    }
+                });
+                actions.appendChild(deleteButton);
+            }
+
             const mapButton = element(
                 'button',
                 'button secondary',
@@ -616,7 +644,8 @@
 
         document.getElementById('course-form').addEventListener('submit', async (event) => {
             event.preventDefault();
-            const button = event.currentTarget.querySelector('button[type="submit"]');
+            const form = event.currentTarget;
+            const button = form.querySelector('button[type="submit"]');
             button.disabled = true;
             try {
                 await api('/api/faculty/courses', {
@@ -633,7 +662,7 @@
                         model: document.getElementById('course-model').value
                     })
                 });
-                event.currentTarget.reset();
+                form.reset();
                 document.getElementById('question-limit').value = '500';
                 setupCourseCreateSelectors();
                 notify('Draft course created. Add its syllabus and lecture transcripts below.');

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Manage courses in the ATLAS Arlington faculty pilot.">
     <title>Faculty dashboard | ATLAS</title>
-    <link rel="stylesheet" href="/static/pilot.css?v=lecture-layout-2">
+    <link rel="stylesheet" href="/static/pilot.css?v=upload-layout-3">
 </head>
 <body>
     <header class="site-header">
@@ -144,7 +144,10 @@
         function notify(message, kind = 'success') {
             pageStatus.textContent = message;
             pageStatus.className = 'status-message show ' + kind;
-            pageStatus.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+            const dismiss = element('button', 'status-dismiss', 'Dismiss');
+            dismiss.type = 'button';
+            dismiss.onclick = () => { pageStatus.className = 'status-message'; };
+            pageStatus.append(dismiss);
         }
 
         async function api(path, options = {}) {
@@ -267,6 +270,7 @@
 
         function documentRow(course, document) {
             const row = element('li', 'document-item');
+            row.dataset.documentId = document.id;
             const description = element('div', 'document-name');
             const typeName = document.document_type === 'syllabus' ? 'Syllabus' : document.document_type === 'lecture_transcript' ? 'Lecture transcript' : 'Other course material';
             description.textContent = typeName + ': ' + document.filename + ' (' + formatBytes(document.byte_size) + ')' + ((document.lecture_numbers||[]).length ? ' · Lectures ' + document.lecture_numbers.join(', ') : '');
@@ -564,7 +568,7 @@
             documents.appendChild(element('h3', '', 'Course materials'));
             const uploadForm = element('form', 'document-upload');
 
-            const typeField = element('div', 'field');
+            const typeField = element('div', 'field material-type-field');
             const typeLabel = element('label', '', 'Material type');
             const typeSelect = element('select');
             const syllabusOption = element('option', '', 'Syllabus');
@@ -580,7 +584,7 @@
             lectureField.append(lectureNumber,
                 element('p','muted','Select every lecture where these files are used. Leave all unchecked for general course materials. Choose Lecture transcript only for an actual class recording transcript.'));
 
-            const fileField = element('div', 'field');
+            const fileField = element('div', 'field upload-file-field');
             const fileLabel = element('label', '', 'Files');
             const fileInput = element('input');
             fileInput.type = 'file';
@@ -633,12 +637,23 @@
         async function loadCourses() {
             const data = await api('/api/faculty/courses');
             const container = document.getElementById('courses');
-            container.textContent = '';
+            const scrollX = window.scrollX;
+            const scrollY = window.scrollY;
+            const openDocuments = new Set(Array.from(container.querySelectorAll('.document-item'))
+                .filter(row => row.querySelector('details[open]'))
+                .map(row => row.dataset.documentId));
+            const fragment = document.createDocumentFragment();
             if (!data.courses.length) {
-                container.appendChild(element('div', 'empty', 'No courses yet. Create your first draft above.'));
-                return;
+                fragment.appendChild(element('div', 'empty', 'No courses yet. Create your first draft above.'));
+            } else {
+                data.courses.forEach((course) => fragment.appendChild(courseCard(course)));
             }
-            data.courses.forEach((course) => container.appendChild(courseCard(course)));
+            fragment.querySelectorAll('.document-item').forEach(row => {
+                if (openDocuments.has(row.dataset.documentId)) row.querySelector('details').open = true;
+            });
+            // Replace in one operation so the page never collapses to an empty list.
+            container.replaceChildren(fragment);
+            window.scrollTo({left: scrollX, top: scrollY, behavior: 'instant'});
         }
 
         document.querySelectorAll('.provider-key-form').forEach((form) => {

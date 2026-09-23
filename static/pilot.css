@@ -310,7 +310,11 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
 }
 
 .document-area { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }
-.document-upload { display: grid; grid-template-columns: 160px 1fr auto; gap: 9px; align-items: end; }
+.document-upload { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.document-upload .material-type-field { width: min(100%, 420px); }
+.document-upload .upload-file-field { min-width: 0; }
+.document-upload .upload-file-field p { margin: 8px 0 0; }
+.document-upload > button { justify-self: start; }
 .document-upload .field { margin: 0; }
 .document-list { margin: 14px 0 0; padding: 0; list-style: none; }
 .document-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 9px 0; border-top: 1px solid #efede9; font-size: 0.86rem; }
@@ -358,3 +362,7 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
 .lecture-tag-details { width: 100%; min-width: 0; }
 .lecture-tag-details summary { cursor: pointer; padding: 6px 0; color: var(--red); font-weight: 600; }
 .lecture-tag-details[open] summary { margin-bottom: 8px; }
+
+/* Show feedback without moving the faculty dashboard or changing its height. */
+#page-status { position: fixed; right: 16px; bottom: 16px; z-index: 1000; width: min(520px, calc(100% - 32px)); margin: 0; box-shadow: var(--shadow); }
+.status-dismiss { display: block; margin-top: 8px; padding: 2px 0; border: 0; color: inherit; background: transparent; font: inherit; text-decoration: underline; }

@@ -23,7 +23,22 @@
 </main></div>
 <script>
 function esc(s){var d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
-function md(t){var h=esc(t);h=h.replace(/^### (.+)$/gm,'<h4>$1</h4>').replace(/^## (.+)$/gm,'<h3>$1</h3>').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/`([^`]+)`/g,'<code>$1</code>').replace(/^- (.+)$/gm,'<li>$1</li>').replace(/(<li>.*<\/li>\n?)+/g,'<ul>$&</ul>').replace(/\n\n/g,'</p><p>').replace(/\n/g,'<br>');return '<p>'+h+'</p>'}
+function md(t){
+    function inline(text){return esc(text).replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/`([^`]+)`/g,'<code>$1</code>')}
+    var blocks=[],paragraph=[],items=[];
+    function flushParagraph(){if(paragraph.length){blocks.push('<p>'+paragraph.map(inline).join('<br>')+'</p>');paragraph=[]}}
+    function flushList(){if(items.length){blocks.push('<ul>'+items.map(function(x){return '<li>'+inline(x)+'</li>'}).join('')+'</ul>');items=[]}}
+    String(t).split(/\r?\n/).forEach(function(line){
+        if(/^\s*[-*+]\s*$/.test(line))return;
+        var bullet=line.match(/^\s*[-*+]\s+(.+?)\s*$/),heading=line.match(/^(#{1,3})\s+(.+)$/);
+        if(bullet){flushParagraph();items.push(bullet[1]);return}
+        if(!line.trim()){flushParagraph();return}
+        flushList();
+        if(heading){flushParagraph();var tag=heading[1].length===3?'h4':'h3';blocks.push('<'+tag+'>'+inline(heading[2])+'</'+tag+'>')}
+        else paragraph.push(line);
+    });
+    flushParagraph();flushList();return blocks.join('');
+}
 var courseId=location.pathname.split('/').pop(),sessionId,currentCourse=null,conceptMap=null,messageHistory=[],answerMode='direct',guideMode='course_chat';
 function uuid(){return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c==='x'?r:(r&3|8);return v.toString(16)})}
 function init(){sessionId=sessionStorage.getItem('atlas_session_id')||uuid();sessionStorage.setItem('atlas_session_id',sessionId);loadCourse();loadConcepts()}

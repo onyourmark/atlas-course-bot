@@ -348,6 +348,12 @@ def search_chunk_matches(
             if re.search(r"\b" + subject + r"s?\s+(?:is|are|means|refers to)\b",
                          chunk["text"], flags=re.IGNORECASE):
                 score += 10
+        if re.search(r"\bhow\b.*\b(?:use|used)\b", query, re.IGNORECASE):
+            practical_terms = ("routing", "route", "choose", "choices", "example",
+                               "classify", "classification", "action")
+            score += 2 * sum(bool(re.search(r"\b" + word + r"s?\b",
+                                           chunk["text"], re.IGNORECASE))
+                             for word in practical_terms)
         scored.append((score, chunk, matched_terms))
 
     scored.sort(key=lambda item: (-item[0], item[1]["display_name"], item[1]["chunk_idx"]))

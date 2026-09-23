@@ -268,6 +268,66 @@ def _make_excerpt(text: str, terms: List[str], max_chars: int = 320) -> str:
     return excerpt
 
 
+def _document_overview(query: str, chunks: List[Dict]) -> Optional[List[Dict]]:
+    """Resolve an explicitly requested chapter/document before passage search."""
+    if not re.search(r"\b(?:main points|key points|summary|summari[sz]e|overview|"
+                     r"main ideas|key ideas|covers|covered)\b", query, re.IGNORECASE):
+        return None
+    sources = sorted({chunk["source"] for chunk in chunks})
+    lower = query.lower()
+    selected = [source for source in sources if source.lower() in lower]
+    chapter = re.search(r"\bchapter[ _-]*(\d+|one|two|three|four|five|six|seven|"
+                        r"eight|nine|ten|eleven|twelve|thirteen|fourteen)\b",
+                        lower)
+    if not selected and chapter:
+        words = ["one", "two", "three", "four", "five", "six", "seven",
+                 "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen"]
+        value = chapter.group(1)
+        number = int(value) if value.isdigit() else words.index(value) + 1
+        pattern = re.compile(r"chapter[ _-]*0*" + str(number) + r"(?!\d)", re.IGNORECASE)
+        selected = [source for source in sources if pattern.search(source)]
+        # The chapter text is preferable to a classroom slide adaptation.
+        primary = [source for source in selected if Path(source).suffix.lower() == ".md"]
+        if primary:
+            selected = primary
+    if not selected:
+        # Do not replace a missing explicitly requested file with passing mentions.
+        if chapter or re.search(r"\.(?:md|txt|docx|pptx|pdf)\b", lower):
+            return []
+        return None
+
+    matches = []
+    budget = 96000
+    for source in selected:
+        passages = sorted((c for c in chunks if c["source"] == source),
+                          key=lambda c: c["chunk_idx"])
+        if not passages or budget <= 0:
+            break
+        text = passages[0]["text"]
+        for passage in passages[1:]:
+            following = passage["text"]
+            overlap = 0
+            for size in range(min(_CHUNK_OVERLAP, len(text), len(following)), 0, -1):
+                if text.endswith(following[:size]):
+                    overlap = size
+                    break
+            text += ("" if overlap else "\n") + following[overlap:]
+        if len(text) > budget:
+            # Sample across the document instead of silently losing its ending.
+            count = max(1, budget // (_CHUNK_SIZE + 80))
+            indexes = sorted({round(i * (len(passages) - 1) / max(1, count - 1))
+                              for i in range(count)})
+            text = "[Selected passages across the document; not the complete text.]\n"
+            text += "\n\n".join(passages[i]["text"] for i in indexes)
+            text = text[:budget]
+        else:
+            text = "[Complete document text.]\n" + text
+        budget -= len(text)
+        matches.append({**passages[0], "text": text, "score": 100,
+                        "excerpt": _make_excerpt(passages[0]["text"], [])})
+    return matches
+
+
 def search_chunk_matches(
     query: str,
     chunks: List[Dict],
@@ -276,6 +336,10 @@ def search_chunk_matches(
     """Find relevant passages, allowing several passages from a long source."""
     if not chunks:
         return []
+
+    overview = _document_overview(query, chunks)
+    if overview is not None:
+        return overview
 
     terms = extract_search_terms(query)
     if not terms:

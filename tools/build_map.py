@@ -13,7 +13,11 @@ Usage:
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from pilot_platform import extract_document_text, ALLOWED_DOCUMENT_EXTENSIONS
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -37,12 +41,11 @@ def load_course_materials(course_id: str, knowledge_dir: Path) -> str:
         for transcript_file in sorted(transcripts_dir.glob("*")):
             if transcript_file.is_file() and transcript_file.name != ".gitkeep":
                 try:
-                    if transcript_file.suffix == ".docx":
-                        from docx import Document
-                        doc = Document(str(transcript_file))
-                        text = "\n".join([p.text for p in doc.paragraphs])
-                    else:
-                        text = transcript_file.read_text()
+                    if transcript_file.suffix.lower() not in ALLOWED_DOCUMENT_EXTENSIONS:
+                        continue
+                    text = extract_document_text(
+                        transcript_file.name, transcript_file.read_bytes()
+                    )
                     materials.append(f"=== {transcript_file.name} ===\n{text}")
                 except Exception as e:
                     print(f"Warning: Could not read {transcript_file.name}: {e}")

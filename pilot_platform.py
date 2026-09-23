@@ -146,14 +146,29 @@ def extract_document_text(filename: str, content: bytes) -> str:
             from docx import Document
 
             document = Document(BytesIO(content))
-            text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+            text = "\n".join(
+                [paragraph.text for paragraph in document.paragraphs]
+                + [" | ".join(cell.text for cell in row.cells)
+                   for table in document.tables for row in table.rows]
+            )
 
         elif extension == ".pdf":
             from io import BytesIO
             from pypdf import PdfReader
 
             reader = PdfReader(BytesIO(content))
-            text = "\n".join((page.extract_text() or "") for page in reader.pages)
+            if reader.is_encrypted and not reader.decrypt(""):
+                raise ValueError("Remove the PDF password before uploading.")
+            pages = []
+            for number, page in enumerate(reader.pages, 1):
+                page_text = (page.extract_text() or "").strip()
+                if not page_text:
+                    raise ValueError(
+                        f"Page {number} has no readable text. Use text recognition "
+                        "(OCR) on scanned pages before uploading."
+                    )
+                pages.append(f"[Page {number}]\n{page_text}")
+            text = "\n\n".join(pages)
 
         elif extension == ".pptx":
             from io import BytesIO
@@ -161,16 +176,38 @@ def extract_document_text(filename: str, content: bytes) -> str:
 
             presentation = Presentation(BytesIO(content))
             lines: List[str] = []
-            for slide in presentation.slides:
-                for shape in slide.shapes:
-                    if hasattr(shape, "text") and shape.text:
-                        lines.append(shape.text)
+            def shape_text(shapes):
+                result = []
+                for shape in shapes:
+                    if shape.has_text_frame and shape.text.strip():
+                        result.append(shape.text)
+                    if shape.has_table:
+                        result.extend(" | ".join(cell.text for cell in row.cells)
+                                      for row in shape.table.rows)
+                    if hasattr(shape, "shapes"):
+                        result.extend(shape_text(shape.shapes))
+                return result
+
+            for number, slide in enumerate(presentation.slides, 1):
+                slide_lines = shape_text(slide.shapes)
+                if slide.has_notes_slide:
+                    notes = slide.notes_slide.notes_text_frame
+                    if notes is not None and notes.text.strip():
+                        slide_lines.append("Speaker notes: " + notes.text)
+                if not any(line.strip() for line in slide_lines):
+                    raise ValueError(
+                        f"Slide {number} has no readable text. Add a text description "
+                        "or speaker notes for visual-only slides before uploading."
+                    )
+                lines.append(f"[Slide {number}]\n" + "\n".join(slide_lines))
             text = "\n".join(lines)
     except Exception as exc:
         raise PilotValidationError(f"ATLAS could not read {name}: {exc}") from exc
 
-    if not text and extension not in ALLOWED_DOCUMENT_EXTENSIONS:
-        raise PilotValidationError("Unsupported document type.")
+    if not text.strip():
+        raise PilotValidationError(
+            "No readable text was found. Add text or use text recognition (OCR) before uploading."
+        )
     if len(text) > MAX_EXTRACTED_TEXT_CHARS:
         raise PilotValidationError(
             "The extracted document text is too large. Split the file into smaller parts."

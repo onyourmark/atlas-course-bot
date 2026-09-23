@@ -18,7 +18,7 @@ _CHUNK_OVERLAP = 300
 KNOWLEDGE_DIR = Path(__file__).parent
 
 # Supported transcript file extensions
-_TRANSCRIPT_EXTENSIONS = ["*.txt", "*.docx"]
+_TRANSCRIPT_EXTENSIONS = [".txt", ".docx", ".md", ".pdf", ".pptx"]
 
 # Ordinary question words should not make an unrelated lecture look relevant.
 _SEARCH_STOP_WORDS = {
@@ -110,20 +110,17 @@ def load_transcripts(course_id: str) -> Dict[str, str]:
     if not transcripts_dir.exists():
         return transcripts
 
-    try:
-        # Collect all supported files, deduplicating by stem
-        seen_stems = set()
-        for pattern in _TRANSCRIPT_EXTENSIONS:
-            for file_path in sorted(transcripts_dir.glob(pattern)):
-                if file_path.stem not in seen_stems:
-                    seen_stems.add(file_path.stem)
-                    if file_path.suffix.lower() == ".docx":
-                        transcripts[file_path.name] = _read_docx(file_path)
-                    else:
-                        with open(file_path, "r") as f:
-                            transcripts[file_path.name] = f.read()
-    except Exception as e:
-        print(f"Error loading transcripts for course {course_id}: {e}")
+    from pilot_platform import extract_document_text
+
+    # Preserve distinct source filenames, including files with the same stem.
+    for file_path in sorted(transcripts_dir.iterdir()):
+        if file_path.is_file() and file_path.suffix.lower() in _TRANSCRIPT_EXTENSIONS:
+            try:
+                transcripts[file_path.name] = extract_document_text(
+                    file_path.name, file_path.read_bytes()
+                )
+            except Exception as exc:
+                print(f"Error reading {file_path.name}: {exc}")
 
     return dict(sorted(transcripts.items()))
 

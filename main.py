@@ -49,6 +49,7 @@ from ai_providers import (
 )
 from pilot_platform import (
     MAX_DOCUMENT_BYTES,
+    ALLOWED_DOCUMENT_EXTENSIONS,
     PilotConfigurationError,
     PilotStore,
     PilotValidationError,
@@ -1598,7 +1599,7 @@ async def admin_list_courses(request: Request, key: Optional[str] = None):
         transcript_files = []
         if transcripts_dir.exists():
             for f in sorted(transcripts_dir.iterdir()):
-                if f.suffix.lower() in (".txt", ".docx") and f.name != ".gitkeep":
+                if f.suffix.lower() in ALLOWED_DOCUMENT_EXTENSIONS and f.name != ".gitkeep":
                     transcript_files.append({
                         "name": f.name,
                         "size": f.stat().st_size,
@@ -1683,7 +1684,7 @@ async def upload_syllabus(
     course_id: str = Form(...),
     file: UploadFile = File(...),
 ):
-    """Upload a syllabus file (.md or .txt) for a course."""
+    """Upload and extract a supported syllabus document."""
     _check_admin_access(request, key)
     _validate_legacy_course(course_id)
 
@@ -1694,7 +1695,8 @@ async def upload_syllabus(
     if len(content) > MAX_DOCUMENT_BYTES:
         raise HTTPException(status_code=400, detail="The syllabus must be 25 MB or smaller")
     syllabus_path = course_dir / "syllabus.md"
-    syllabus_path.write_bytes(content)
+    text = extract_document_text(file.filename or "", content)
+    syllabus_path.write_text(text, encoding="utf-8")
 
     summary = _reload_course(course_id)
 
@@ -1714,7 +1716,7 @@ async def upload_transcripts(
     course_id: str = Form(...),
     files: List[UploadFile] = File(...),
 ):
-    """Upload one or more transcript files (.docx or .txt) for a course."""
+    """Upload course materials in any supported document format."""
     _check_admin_access(request, key)
     _validate_legacy_course(course_id)
 
@@ -1724,21 +1726,17 @@ async def upload_transcripts(
     if len(files) > 20:
         raise HTTPException(status_code=400, detail="Upload at most 20 transcripts")
 
-    uploaded = []
+    # Validate the entire batch before writing any files.
+    prepared = []
     for file in files:
         filename = Path(file.filename or "").name
-        ext = Path(filename).suffix.lower()
-        if ext not in (".txt", ".docx"):
-            continue
-
         content = await file.read()
-        if len(content) > MAX_DOCUMENT_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"{filename} must be 25 MB or smaller",
-            )
-        dest = transcripts_dir / filename
-        dest.write_bytes(content)
+        extract_document_text(filename, content)
+        prepared.append((filename, content))
+
+    uploaded = []
+    for filename, content in prepared:
+        (transcripts_dir / filename).write_bytes(content)
         uploaded.append({"name": filename, "size": len(content)})
 
     summary = _reload_course(course_id)

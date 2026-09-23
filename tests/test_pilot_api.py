@@ -272,6 +272,22 @@ class PilotApiFlowTests(unittest.TestCase):
         )
         self.assertEqual(uploaded.status_code, 200)
 
+        from test_document_uploads import pdf_bytes, pptx_bytes
+        materials = self.client.post(
+            f"/api/faculty/courses/{course_id}/documents",
+            data={"document_type": "transcript"},
+            files=[
+                ("files", ("lesson.pdf", pdf_bytes(), "application/pdf")),
+                ("files", ("lesson.pptx", pptx_bytes(),
+                 "application/vnd.openxmlformats-officedocument.presentationml.presentation")),
+            ],
+        )
+        self.assertEqual(materials.status_code, 200, materials.text)
+        source_text = str(main.COURSE_SOURCE_CHUNKS[course_id])
+        self.assertIn("boundary policy", source_text)
+        self.assertIn("Compare neighboring zones", source_text)
+
+
         with mock.patch.object(main.anthropic, "Anthropic", FakeConceptMapClient):
             generated_map = self.client.post(
                 f"/api/faculty/courses/{course_id}/concept-map"

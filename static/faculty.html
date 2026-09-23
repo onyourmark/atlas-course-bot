@@ -127,7 +127,7 @@
                 <div>
                     <p class="eyebrow">Step 3</p>
                     <h2 id="courses-heading">Add materials and publish</h2>
-                    <p class="muted">Upload a syllabus and lecture transcripts. Published pilot courses stay off the public course selector and are available through their private link.</p>
+                    <p class="muted">Upload a syllabus, lecture transcripts, notes, slides, and readings each week. Published pilot courses stay off the public course selector and are available through their private link.</p>
                 </div>
             </div>
             <div id="courses" class="course-list">
@@ -531,7 +531,7 @@
             const typeSelect = element('select');
             const syllabusOption = element('option', '', 'Syllabus');
             syllabusOption.value = 'syllabus';
-            const transcriptOption = element('option', '', 'Lecture transcript');
+            const transcriptOption = element('option', '', 'Lecture materials (transcripts, notes, slides, readings)');
             transcriptOption.value = 'transcript';
             typeSelect.append(syllabusOption, transcriptOption);
             typeField.append(typeLabel, typeSelect);
@@ -543,7 +543,8 @@
             fileInput.accept = '.docx,.md,.pdf,.pptx,.txt';
             fileInput.multiple = true;
             fileInput.required = true;
-            fileField.append(fileLabel, fileInput);
+            fileField.append(fileLabel, fileInput,
+                element('p', 'muted', 'PDF, PowerPoint (.pptx), Word (.docx), text, or Markdown. Up to 25 MB per file. Text, tables, and PowerPoint speaker notes are read; pictures and diagrams are not interpreted. Use text recognition for scanned PDFs. Save older .ppt files as .pptx first.'));
 
             const uploadButton = element('button', 'button', 'Upload');
             uploadButton.type = 'submit';

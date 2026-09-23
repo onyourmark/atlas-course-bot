@@ -143,6 +143,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     message: str = Field(min_length=1, max_length=4000)
+    lecture_number: Optional[int] = Field(default=None, ge=1, le=15)
     history: Optional[List[ChatMessage]] = Field(default=None, max_length=12)
     session_id: Optional[str] = Field(default=None, max_length=100)
     mode: Literal[
@@ -381,8 +382,8 @@ def _reload_pilot_course(course_id: str) -> Dict:
         metadata = source_metadata.get(chunk["source"], {})
         chunk.update(metadata)
         if metadata.get("document_type") == "lecture_transcript":
-            chunk["display_name"] = f"Lecture {metadata['lecture_number']} transcript: {chunk['source']}"
-        elif metadata:
+            chunk["display_name"] = f"Lecture transcript: {chunk['source']}"
+        elif metadata and metadata.get("document_type") != "syllabus":
             chunk["display_name"] = f"Course material: {chunk['source']}"
 
     COURSES[course_id] = config
@@ -807,11 +808,21 @@ async def chat(course_id: str, request: ChatRequest):
             status_code=500,
             detail=f"System prompt not initialized for course {course_id}"
         )
+    written_lecture = requested_lecture_number(request.message)
+    if request.lecture_number is not None and written_lecture is not None and request.lecture_number != written_lecture:
+        raise HTTPException(status_code=400, detail="The question names a different lecture. Change the lecture selector or choose Any lecture.")
+    selected_lecture = request.lecture_number if request.lecture_number is not None else written_lecture
+    if selected_lecture is not None:
+        system_prompt = build_system_prompt(config, {}, "")
     system_prompt += _guide_prompt(request.mode)
 
     # Search the syllabus and transcripts. Ordinary question words are ignored so
     # an unrelated source is not presented merely because it contains "what".
     retrieval_query = _build_retrieval_query(request.message, request.history)
+    if request.lecture_number is not None and requested_lecture_number(retrieval_query) is None:
+        retrieval_query += f" in lecture {request.lecture_number}"
+    if selected_lecture is not None:
+        chunks = [c for c in chunks if selected_lecture in c.get("lecture_numbers", [c.get("lecture_number")])]
     if request.mode == "course_chat":
         source_matches = search_chunk_matches(retrieval_query, chunks, max_chunks=3)
     else:
@@ -836,12 +847,12 @@ async def chat(course_id: str, request: ChatRequest):
         lecture = requested_lecture_number(retrieval_query)
         no_materials_message = NO_MATERIALS_RESPONSE
         if lecture is not None and not any(
-            c.get("document_type") == "lecture_transcript" and c.get("lecture_number") == lecture
+            lecture in c.get("lecture_numbers", [c.get("lecture_number")])
             for c in chunks
         ):
             no_materials_message = (
-                f"No lecture transcript has been assigned to Lecture {lecture} yet. "
-                "The instructor needs to label the transcript before ATLAS can use it for this question."
+                f"No course materials have been tagged for Lecture {lecture} yet. "
+                "The instructor needs to tag its materials before ATLAS can use them for this question."
             )
         return JSONResponse({
             "session_id": session_id,
@@ -1337,13 +1348,22 @@ async def faculty_upload_documents(
     document_type: str = Form(...),
     files: List[UploadFile] = File(...),
     lecture_number: Optional[int] = Form(None),
+    lecture_numbers: Optional[str] = Form(None),
 ):
     professor = _require_professor(request)
     store = _require_pilot_store()
     course = store.get_course(course_id)
     if not course or course["owner_id"] != professor["id"]:
         raise HTTPException(status_code=404, detail="Course not found")
-    store.validate_document_category(document_type, lecture_number)
+    numbers = None
+    if lecture_numbers is not None:
+        try:
+            numbers = json.loads(lecture_numbers)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid lecture tags")
+        store.validate_lecture_tags(document_type, numbers)
+    else:
+        store.validate_document_category(document_type, lecture_number)
     if not files or len(files) > 20:
         raise HTTPException(status_code=400, detail="Upload between 1 and 20 files")
 
@@ -1361,6 +1381,7 @@ async def faculty_upload_documents(
             filename=filename,
             document_type=document_type,
             lecture_number=lecture_number,
+            lecture_numbers=numbers,
             content=content,
             extracted_text=text,
         )
@@ -1377,6 +1398,7 @@ async def faculty_upload_documents(
 class DocumentCategoryRequest(BaseModel):
     document_type: str
     lecture_number: Optional[int] = None
+    lecture_numbers: Optional[List[int]] = None
 
 
 @app.patch("/api/faculty/courses/{course_id}/documents/{document_id}")
@@ -1385,7 +1407,7 @@ async def faculty_label_document(course_id: str, document_id: str, request: Requ
     professor = _require_professor(request)
     store = _require_pilot_store()
     store.set_document_category(course_id, professor["id"], document_id,
-                                payload.document_type, payload.lecture_number)
+                                payload.document_type, payload.lecture_number, payload.lecture_numbers)
     _reload_pilot_course(course_id)
     return {"status": "updated"}
 

@@ -353,8 +353,11 @@ def search_chunk_matches(
 
     lecture = requested_lecture_number(query)
     if lecture is not None:
-        chunks = [c for c in chunks if c.get("document_type") == "lecture_transcript"
-                  and c.get("lecture_number") == lecture]
+        chunks = [c for c in chunks if lecture in c.get("lecture_numbers", [c.get("lecture_number")])]
+        if re.search(r"\b(?:said|spoken|recording|transcript)\b", query, re.IGNORECASE):
+            transcripts = [c for c in chunks if c.get("document_type") == "lecture_transcript"]
+            if transcripts:
+                chunks = transcripts
         if not chunks:
             return []
 

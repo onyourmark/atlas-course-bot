@@ -350,3 +350,11 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
 .document-item select { width: auto; max-width: 100%; }
 .document-item .muted { flex-basis: 100%; margin: 0; }
 .document-upload .lecture-field { grid-column: 1 / -1; }
+
+.lecture-tags { display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:8px; width:100%; border:1px solid #ddd; border-radius:6px; padding:12px; box-sizing:border-box; }
+.lecture-tags label { display:flex; align-items:center; gap:6px; font-weight:normal; margin:0; }
+.lecture-tags input[type=checkbox] { width:auto; margin:0; }
+.document-item .lecture-tags { flex-basis:100%; }
+
+.lecture-tag-details { flex-basis:100%; }
+.lecture-tag-details summary { cursor:pointer; margin-bottom:6px; }

@@ -455,6 +455,10 @@ class PilotStore:
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(documents)")
             }
+            if "lecture_numbers" not in document_columns:
+                connection.execute("ALTER TABLE documents ADD COLUMN lecture_numbers TEXT NOT NULL DEFAULT '[]'")
+                if "lecture_number" in document_columns:
+                    connection.execute("UPDATE documents SET lecture_numbers = printf('[%d]', lecture_number) WHERE lecture_number IS NOT NULL")
             if "lecture_number" not in document_columns:
                 connection.execute("ALTER TABLE documents ADD COLUMN lecture_number INTEGER")
             if "extracted_chars" not in document_columns:
@@ -1148,8 +1152,15 @@ class PilotStore:
         content: bytes,
         extracted_text: str,
         lecture_number: Optional[int] = None,
+        lecture_numbers: Optional[List[int]] = None,
     ) -> Dict:
-        self.validate_document_category(document_type, lecture_number)
+        if lecture_numbers is None:
+            self.validate_document_category(document_type, lecture_number)
+            lecture_numbers = [lecture_number] if lecture_number is not None else []
+        else:
+            self.validate_lecture_tags(document_type, lecture_numbers)
+        lecture_numbers = sorted(set(lecture_numbers))
+        lecture_number = lecture_numbers[0] if len(lecture_numbers) == 1 else None
         course = self.get_course(course_id)
         if not course or course["owner_id"] != owner_id:
             raise PilotValidationError("Course not found.")
@@ -1232,6 +1243,7 @@ class PilotStore:
             "filename": original_name,
             "document_type": document_type,
             "lecture_number": lecture_number,
+            "lecture_numbers": json.dumps(lecture_numbers),
             "stored_path": str(stored_path.relative_to(self.data_dir)),
             "extracted_path": str(extracted_path.relative_to(self.data_dir)),
             "byte_size": len(content),
@@ -1264,10 +1276,10 @@ class PilotStore:
             connection.execute(
                 """
                 INSERT INTO documents
-                    (id, course_id, filename, document_type, lecture_number, stored_path,
+                    (id, course_id, filename, document_type, lecture_number, lecture_numbers, stored_path,
                      extracted_path, byte_size, extracted_chars, sha256, uploaded_at)
                 VALUES
-                    (:id, :course_id, :filename, :document_type, :lecture_number, :stored_path,
+                    (:id, :course_id, :filename, :document_type, :lecture_number, :lecture_numbers, :stored_path,
                      :extracted_path, :byte_size, :extracted_chars, :sha256, :uploaded_at)
                 """,
                 record,
@@ -1276,7 +1288,7 @@ class PilotStore:
                 "UPDATE courses SET updated_at = ? WHERE id = ?",
                 (now, course_id),
             )
-        return record
+        return {**record, "lecture_numbers": lecture_numbers}
 
     @staticmethod
     def validate_document_category(document_type, lecture_number):
@@ -1288,20 +1300,36 @@ class PilotStore:
         elif lecture_number is not None:
             raise PilotValidationError("Only lecture transcripts can have a lecture number.")
 
+    @staticmethod
+    def validate_lecture_tags(document_type, numbers):
+        if document_type not in {"syllabus", "transcript", "lecture_transcript", "material"}:
+            raise PilotValidationError("Invalid document type.")
+        if not isinstance(numbers, list) or any(type(n) is not int or not 1 <= n <= 15 for n in numbers):
+            raise PilotValidationError("Lecture tags must be numbers from 1 to 15.")
+
     def set_document_category(self, course_id, owner_id, document_id, document_type,
-                              lecture_number=None):
-        self.validate_document_category(document_type, lecture_number)
-        # Changing an existing file into a syllabus must not silently replace another.
-        if document_type == "syllabus":
-            raise PilotValidationError("Use the syllabus upload form to replace a syllabus.")
+                              lecture_number=None, lecture_numbers=None):
+        if lecture_numbers is None:
+            self.validate_document_category(document_type, lecture_number)
+            lecture_numbers = [lecture_number] if lecture_number is not None else []
+        else:
+            self.validate_lecture_tags(document_type, lecture_numbers)
+        lecture_numbers = sorted(set(lecture_numbers))
+        lecture_number = lecture_numbers[0] if len(lecture_numbers) == 1 else None
         course = self.get_course(course_id)
         if not course or course["owner_id"] != owner_id:
             raise PilotValidationError("Course not found.")
         with self._connect() as connection:
+            existing = connection.execute("SELECT document_type FROM documents WHERE id = ? AND course_id = ?",
+                                          (document_id, course_id)).fetchone()
+            if not existing:
+                raise PilotValidationError("Document not found.")
+            if document_type == "syllabus" and existing["document_type"] != "syllabus":
+                raise PilotValidationError("Use the syllabus upload form to replace a syllabus.")
             result = connection.execute(
-                "UPDATE documents SET document_type = ?, lecture_number = ? "
+                "UPDATE documents SET document_type = ?, lecture_number = ?, lecture_numbers = ? "
                 "WHERE id = ? AND course_id = ?",
-                (document_type, lecture_number, document_id, course_id),
+                (document_type, lecture_number, json.dumps(lecture_numbers), document_id, course_id),
             )
             if result.rowcount != 1:
                 raise PilotValidationError("Document not found.")
@@ -1315,14 +1343,17 @@ class PilotStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, course_id, filename, document_type, lecture_number, byte_size,
+                SELECT id, course_id, filename, document_type, lecture_number, lecture_numbers, byte_size,
                        extracted_chars, sha256, uploaded_at
                 FROM documents WHERE course_id = ?
                 ORDER BY uploaded_at DESC
                 """,
                 (course_id,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        documents = [dict(row) for row in rows]
+        for document in documents:
+            document["lecture_numbers"] = json.loads(document["lecture_numbers"])
+        return documents
 
     def load_course_materials(self, course_id: str, include_metadata: bool = False):
         course = self.get_course(course_id)
@@ -1331,7 +1362,7 @@ class PilotStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT filename, document_type, lecture_number, extracted_path, stored_path
+                SELECT filename, document_type, lecture_number, lecture_numbers, extracted_path, stored_path
                 FROM documents WHERE course_id = ?
                 ORDER BY uploaded_at ASC
                 """,
@@ -1360,6 +1391,11 @@ class PilotStore:
                 text = extract_document_text(row["filename"], original.read_bytes())
             text = clean_caption_text(text)
             if row["document_type"] == "syllabus":
+                source_metadata[row["filename"]] = {
+                    "document_type": row["document_type"],
+                    "lecture_number": row["lecture_number"],
+                    "lecture_numbers": json.loads(row["lecture_numbers"]),
+                }
                 syllabus = text
             else:
                 display_name = row["filename"]
@@ -1369,6 +1405,7 @@ class PilotStore:
                 source_metadata[display_name] = {
                     "document_type": row["document_type"],
                     "lecture_number": row["lecture_number"],
+                    "lecture_numbers": json.loads(row["lecture_numbers"]),
                 }
         try:
             concept_map = json.loads(course["concept_map_json"] or "{}")

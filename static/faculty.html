@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="description" content="Manage courses in the ATLAS Arlington faculty pilot.">
     <title>Faculty dashboard | ATLAS</title>
-    <link rel="stylesheet" href="/static/pilot.css">
+    <link rel="stylesheet" href="/static/pilot.css?v=lecture-layout-2">
 </head>
 <body>
     <header class="site-header">
@@ -301,8 +301,9 @@
                 }catch(error){notify(error.message,'error');save.disabled=false;}
             };
             row.append(description);
-            row.append(category,tagDetails,save,element('p','muted','Tag this file for every lecture where it is used. Use Lecture transcript only for a class recording transcript.'));
-            row.append(remove);
+            row.append(category,tagDetails,element('p','muted','Tag this file for every lecture where it is used. Use Lecture transcript only for a class recording transcript.'));
+            const actions=element('div','document-edit-actions');
+            actions.append(save,remove);row.append(actions);
             return row;
         }
 

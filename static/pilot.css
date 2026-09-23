@@ -343,18 +343,18 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
     .card-body, .section-card, .course-card { padding: 20px; }
 }
 
-/* Keep material labels and lecture controls usable on narrow screens. */
+/* Each file owns a full-width editor, including the expanded lecture tags. */
 [hidden] { display: none !important; }
-.document-item { flex-wrap: wrap; }
-.document-item .document-name { flex-basis: 100%; }
-.document-item select { width: auto; max-width: 100%; }
-.document-item .muted { flex-basis: 100%; margin: 0; }
+.document-item { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 18px 0; }
+.document-item .document-name { font-weight: 600; }
+.document-item select { width: min(100%, 320px); }
+.document-item .muted { margin: 0; }
+.document-edit-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .document-upload .lecture-field { grid-column: 1 / -1; }
-
-.lecture-tags { display:grid; grid-template-columns:repeat(auto-fit,minmax(105px,1fr)); gap:8px; width:100%; border:1px solid #ddd; border-radius:6px; padding:12px; box-sizing:border-box; }
-.lecture-tags label { display:flex; align-items:center; gap:6px; font-weight:normal; margin:0; }
-.lecture-tags input[type=checkbox] { width:auto; margin:0; }
-.document-item .lecture-tags { flex-basis:100%; }
-
-.lecture-tag-details { flex-basis:100%; }
-.lecture-tag-details summary { cursor:pointer; margin-bottom:6px; }
+.lecture-tags { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; width: 100%; min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.lecture-tags legend { padding: 0 4px; }
+.lecture-tags label { display: flex; align-items: center; gap: 8px; min-height: 36px; font-weight: normal; margin: 0; white-space: nowrap; cursor: pointer; }
+.lecture-tags input[type=checkbox] { flex: 0 0 18px; width: 18px; height: 18px; min-height: 18px; padding: 0; margin: 0; accent-color: var(--red); }
+.lecture-tag-details { width: 100%; min-width: 0; }
+.lecture-tag-details summary { cursor: pointer; padding: 6px 0; color: var(--red); font-weight: 600; }
+.lecture-tag-details[open] summary { margin-bottom: 8px; }

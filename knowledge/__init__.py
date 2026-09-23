@@ -281,6 +281,13 @@ def search_chunk_matches(
     if not terms:
         return []
 
+    # Separate the question subject from an optional domain qualifier.
+    # For example, "What is a tool? In agentic AI" asks about tools.
+    focus = re.split(r"\b(?:in|within)\b", query, maxsplit=1, flags=re.IGNORECASE)[0]
+    focus_terms = extract_search_terms(focus)
+    if not focus_terms:
+        focus_terms = terms
+
     # An explicitly named topic can match even when the surrounding wording
     # differs from the lecture. Never substitute an unrelated capitalized topic.
     named_terms = {
@@ -291,6 +298,12 @@ def search_chunk_matches(
         Counter(re.findall(r"\b[A-Za-z0-9][A-Za-z0-9_-]*\b", chunk["text"].lower()))
         for chunk in chunks
     ]
+    for words in chunk_words:
+        for term in terms:
+            if not term.endswith("s"):
+                words[term] += words[term + "s"]
+            elif len(term) > 3 and not term.endswith("ss"):
+                words[term] += words[term[:-1]]
     frequencies = {
         term: sum(1 for words in chunk_words if words[term])
         for term in terms
@@ -308,6 +321,9 @@ def search_chunk_matches(
         anchors = {term for term in named_terms
                    if frequencies[term] == rarest_frequency}
 
+    if len(focus_terms) == 1:
+        anchors = set(focus_terms)
+
     scored = []
     for chunk, words in zip(chunks, chunk_words):
         matched_terms = [term for term in terms if words[term] > 0]
@@ -323,6 +339,15 @@ def search_chunk_matches(
             * (1 + 0.1 * min(words[term], 5))
             for term in matched_terms
         )
+        if len(focus_terms) == 1:
+            subject_term = focus_terms[0]
+            if subject_term.endswith("s") and not subject_term.endswith("ss"):
+                subject_term = subject_term[:-1]
+            subject = re.escape(subject_term)
+            # Prefer explanations over bibliographies mentioning the same term.
+            if re.search(r"\b" + subject + r"s?\s+(?:is|are|means|refers to)\b",
+                         chunk["text"], flags=re.IGNORECASE):
+                score += 10
         scored.append((score, chunk, matched_terms))
 
     scored.sort(key=lambda item: (-item[0], item[1]["display_name"], item[1]["chunk_idx"]))

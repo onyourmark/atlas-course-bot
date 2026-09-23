@@ -56,3 +56,14 @@ def test_specific_topic_beats_repeated_general_course_terms():
         assert matches
         assert all("Jev" in match["text"] for match in matches)
     assert not search_chunk_matches("How can Saturn be used in Agentic AI?", chunks)
+
+
+def test_tool_definition_beats_generic_agentic_context():
+    chunks = build_course_chunks("", {
+        "references.txt": "Agentic AI patterns include tool use. " * 150,
+        "definition.txt": "A tool is a function a program can call to perform an action, such as looking up a policy.",
+    })
+    for question in ("What is a tool? In agentic AI", "What is a tool in Agentic AI?",
+                     "What are tools in agentic AI?"):
+        matches = search_chunk_matches(question, chunks)
+        assert matches[0]["source"] == "definition.txt"

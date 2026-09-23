@@ -342,3 +342,11 @@ input:focus, select:focus, button:focus-visible, a:focus-visible {
     .usage-row { flex-direction: column; }
     .card-body, .section-card, .course-card { padding: 20px; }
 }
+
+/* Keep material labels and lecture controls usable on narrow screens. */
+[hidden] { display: none !important; }
+.document-item { flex-wrap: wrap; }
+.document-item .document-name { flex-basis: 100%; }
+.document-item select { width: auto; max-width: 100%; }
+.document-item .muted { flex-basis: 100%; margin: 0; }
+.document-upload .lecture-field { grid-column: 1 / -1; }

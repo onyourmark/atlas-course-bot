@@ -250,10 +250,19 @@
             setupCourseCreateSelectors();
         }
 
+        function lectureNumberSelect(value) {
+            const select=element('select');
+            select.setAttribute('aria-label','Lecture number');
+            const placeholder=element('option','','Choose lecture number');placeholder.value='';select.append(placeholder);
+            for(let i=1;i<=100;i++){const option=element('option','','Lecture '+i);option.value=String(i);select.append(option);}
+            select.value=value?String(value):'';
+            return select;
+        }
+
         function documentRow(course, document) {
             const row = element('li', 'document-item');
             const description = element('div', 'document-name');
-            const typeName = document.document_type === 'syllabus' ? 'Syllabus' : 'Transcript';
+            const typeName = document.document_type === 'syllabus' ? 'Syllabus' : document.document_type === 'lecture_transcript' ? 'Lecture ' + document.lecture_number + ' transcript' : 'Other course material';
             description.textContent = typeName + ': ' + document.filename + ' (' + formatBytes(document.byte_size) + ')';
             const remove = element('button', 'button danger small-button', 'Delete');
             remove.type = 'button';
@@ -265,7 +274,33 @@
                     await loadCourses();
                 } catch (error) { notify(error.message, 'error'); }
             });
-            row.append(description, remove);
+            const category = element('select');
+            category.setAttribute('aria-label', 'Category for ' + document.filename);
+            [['material','Other course material'],['lecture_transcript','Lecture transcript']].forEach(([value,label]) => {
+                const option = element('option', '', label); option.value=value; category.append(option);
+            });
+            category.value = document.document_type === 'lecture_transcript' ? 'lecture_transcript' : 'material';
+            const number = lectureNumberSelect(document.lecture_number);
+            number.hidden = category.value !== 'lecture_transcript';
+            category.onchange = () => { number.hidden = category.value !== 'lecture_transcript'; };
+            const save = element('button','button small-button','Save category');
+            save.type='button';
+            save.onclick=async () => {
+                if(category.value==='lecture_transcript' && !number.value){notify('Choose a lecture number.','error');return;}
+                save.disabled=true;
+                try{
+                    await api('/api/faculty/courses/'+encodeURIComponent(course.id)+'/documents/'+encodeURIComponent(document.id),
+                      {method:'PATCH',headers:{'Content-Type':'application/json'},
+                       body:JSON.stringify({document_type:category.value,lecture_number:category.value==='lecture_transcript'?Number(number.value):null})});
+                    await loadCourses();notify('Material category saved.');
+                }catch(error){notify(error.message,'error');save.disabled=false;}
+            };
+            row.append(description);
+            if(document.document_type !== 'syllabus'){
+                row.append(category,number,save,
+                    element('p','muted','Use Lecture transcript only for a transcript of a class recording.'));
+            }
+            row.append(remove);
             return row;
         }
 
@@ -531,10 +566,24 @@
             const typeSelect = element('select');
             const syllabusOption = element('option', '', 'Syllabus');
             syllabusOption.value = 'syllabus';
-            const transcriptOption = element('option', '', 'Lecture materials (transcripts, notes, slides, readings)');
-            transcriptOption.value = 'transcript';
-            typeSelect.append(syllabusOption, transcriptOption);
+            const transcriptOption = element('option', '', 'Lecture transcript');
+            transcriptOption.value = 'lecture_transcript';
+            const materialOption=element('option','','Other course materials (slides, chapters, notes, readings)');
+            materialOption.value='material';
+            typeSelect.append(syllabusOption, transcriptOption, materialOption);
             typeField.append(typeLabel, typeSelect);
+            const lectureField=element('div','field lecture-field');
+            const lectureNumber=lectureNumberSelect();
+            lectureField.append(element('label','','Lecture number'),lectureNumber,
+                element('p','muted','Choose this category only for a transcript of a class recording. Select the lecture number it belongs to. You may upload multiple transcript files for the same lecture.'));
+            lectureField.hidden=true;
+            typeSelect.onchange=()=>{
+                const isLecture=typeSelect.value==='lecture_transcript';
+                lectureField.hidden=!isLecture;
+                lectureNumber.required=isLecture;
+                lectureNumber.disabled=!isLecture;
+            };
+            typeSelect.onchange();
 
             const fileField = element('div', 'field');
             const fileLabel = element('label', '', 'Files');
@@ -548,7 +597,7 @@
 
             const uploadButton = element('button', 'button', 'Upload');
             uploadButton.type = 'submit';
-            uploadForm.append(typeField, fileField, uploadButton);
+            uploadForm.append(typeField, lectureField, fileField, uploadButton);
             uploadForm.addEventListener('submit', async (event) => {
                 event.preventDefault();
                 if (typeSelect.value === 'syllabus' && fileInput.files.length !== 1) {
@@ -557,6 +606,7 @@
                 }
                 const formData = new FormData();
                 formData.append('document_type', typeSelect.value);
+                if(typeSelect.value==='lecture_transcript')formData.append('lecture_number',lectureNumber.value);
                 Array.from(fileInput.files).forEach((file) => formData.append('files', file));
                 uploadButton.disabled = true;
                 uploadButton.textContent = 'Uploading...';

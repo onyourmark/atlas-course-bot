@@ -34,6 +34,7 @@ from knowledge import (
     load_concept_map,
     build_course_chunks,
     extract_search_terms,
+    requested_lecture_number,
     format_source_context,
     search_chunk_matches,
 )
@@ -360,7 +361,7 @@ def _reload_pilot_course(course_id: str) -> Dict:
     if not course:
         raise PilotValidationError("Course not found.")
 
-    syllabus, transcripts, concept_map = store.load_course_materials(course_id)
+    syllabus, transcripts, concept_map, source_metadata = store.load_course_materials(course_id, include_metadata=True)
     config = _pilot_course_config(course)
     syllabus_documents = [
         document
@@ -375,6 +376,14 @@ def _reload_pilot_course(course_id: str) -> Dict:
         transcripts,
         syllabus_filename=syllabus_filename,
     )
+
+    for chunk in chunks:
+        metadata = source_metadata.get(chunk["source"], {})
+        chunk.update(metadata)
+        if metadata.get("document_type") == "lecture_transcript":
+            chunk["display_name"] = f"Lecture {metadata['lecture_number']} transcript: {chunk['source']}"
+        elif metadata:
+            chunk["display_name"] = f"Course material: {chunk['source']}"
 
     COURSES[course_id] = config
     CONCEPT_MAPS[course_id] = concept_map
@@ -824,11 +833,21 @@ async def chat(course_id: str, request: ChatRequest):
     # If the student asked a substantive question and no course source matched,
     # answer deterministically instead of asking the language model to guess.
     if extract_search_terms(retrieval_query) and not source_matches:
+        lecture = requested_lecture_number(retrieval_query)
+        no_materials_message = NO_MATERIALS_RESPONSE
+        if lecture is not None and not any(
+            c.get("document_type") == "lecture_transcript" and c.get("lecture_number") == lecture
+            for c in chunks
+        ):
+            no_materials_message = (
+                f"No lecture transcript has been assigned to Lecture {lecture} yet. "
+                "The instructor needs to label the transcript before ATLAS can use it for this question."
+            )
         return JSONResponse({
             "session_id": session_id,
             "course_id": course_id,
             "mode": request.mode,
-            "response": NO_MATERIALS_RESPONSE,
+            "response": no_materials_message,
             "sources": [],
             "materials_found": False,
             "usage": {
@@ -1317,14 +1336,14 @@ async def faculty_upload_documents(
     request: Request,
     document_type: str = Form(...),
     files: List[UploadFile] = File(...),
+    lecture_number: Optional[int] = Form(None),
 ):
     professor = _require_professor(request)
     store = _require_pilot_store()
     course = store.get_course(course_id)
     if not course or course["owner_id"] != professor["id"]:
         raise HTTPException(status_code=404, detail="Course not found")
-    if document_type not in {"syllabus", "transcript"}:
-        raise HTTPException(status_code=400, detail="Invalid document type")
+    store.validate_document_category(document_type, lecture_number)
     if not files or len(files) > 20:
         raise HTTPException(status_code=400, detail="Upload between 1 and 20 files")
 
@@ -1341,6 +1360,7 @@ async def faculty_upload_documents(
             owner_id=professor["id"],
             filename=filename,
             document_type=document_type,
+            lecture_number=lecture_number,
             content=content,
             extracted_text=text,
         )
@@ -1352,6 +1372,22 @@ async def faculty_upload_documents(
         "documents": saved,
         "course": _faculty_course_payload(store, course),
     }
+
+
+class DocumentCategoryRequest(BaseModel):
+    document_type: str
+    lecture_number: Optional[int] = None
+
+
+@app.patch("/api/faculty/courses/{course_id}/documents/{document_id}")
+async def faculty_label_document(course_id: str, document_id: str, request: Request,
+                                 payload: DocumentCategoryRequest):
+    professor = _require_professor(request)
+    store = _require_pilot_store()
+    store.set_document_category(course_id, professor["id"], document_id,
+                                payload.document_type, payload.lecture_number)
+    _reload_pilot_course(course_id)
+    return {"status": "updated"}
 
 
 @app.delete("/api/faculty/courses/{course_id}/documents/{document_id}")

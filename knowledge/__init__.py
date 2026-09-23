@@ -268,14 +268,27 @@ def _make_excerpt(text: str, terms: List[str], max_chars: int = 320) -> str:
     return excerpt
 
 
+def requested_lecture_number(query: str) -> Optional[int]:
+    words = ("one two three four five six seven eight nine ten eleven twelve "
+             "thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty").split()
+    match = re.search(r"\blecture\s+(\d+|" + "|".join(words) + r")\b",
+                      query, re.IGNORECASE)
+    if not match:
+        return None
+    value = match.group(1).lower()
+    return int(value) if value.isdigit() else words.index(value) + 1
+
+
 def _document_overview(query: str, chunks: List[Dict]) -> Optional[List[Dict]]:
     """Resolve an explicitly requested chapter/document before passage search."""
     if not re.search(r"\b(?:main points|key points|summary|summari[sz]e|overview|"
-                     r"main ideas|key ideas|covers|covered)\b", query, re.IGNORECASE):
+                     r"main ideas|key ideas|covers|covered|points)\b", query, re.IGNORECASE):
         return None
     sources = sorted({chunk["source"] for chunk in chunks})
     lower = query.lower()
     selected = [source for source in sources if source.lower() in lower]
+    if requested_lecture_number(query) is not None:
+        selected = sources
     chapter = re.search(r"\bchapter[ _-]*(\d+|one|two|three|four|five|six|seven|"
                         r"eight|nine|ten|eleven|twelve|thirteen|fourteen)\b",
                         lower)
@@ -298,7 +311,8 @@ def _document_overview(query: str, chunks: List[Dict]) -> Optional[List[Dict]]:
 
     matches = []
     budget = 96000
-    for source in selected:
+    for source_index, source in enumerate(selected):
+        allowance = budget // (len(selected) - source_index)
         passages = sorted((c for c in chunks if c["source"] == source),
                           key=lambda c: c["chunk_idx"])
         if not passages or budget <= 0:
@@ -312,14 +326,14 @@ def _document_overview(query: str, chunks: List[Dict]) -> Optional[List[Dict]]:
                     overlap = size
                     break
             text += ("" if overlap else "\n") + following[overlap:]
-        if len(text) > budget:
+        if len(text) > allowance:
             # Sample across the document instead of silently losing its ending.
-            count = max(1, budget // (_CHUNK_SIZE + 80))
+            count = max(1, allowance // (_CHUNK_SIZE + 80))
             indexes = sorted({round(i * (len(passages) - 1) / max(1, count - 1))
                               for i in range(count)})
             text = "[Selected passages across the document; not the complete text.]\n"
             text += "\n\n".join(passages[i]["text"] for i in indexes)
-            text = text[:budget]
+            text = text[:allowance]
         else:
             text = "[Complete document text.]\n" + text
         budget -= len(text)
@@ -337,10 +351,19 @@ def search_chunk_matches(
     if not chunks:
         return []
 
+    lecture = requested_lecture_number(query)
+    if lecture is not None:
+        chunks = [c for c in chunks if c.get("document_type") == "lecture_transcript"
+                  and c.get("lecture_number") == lecture]
+        if not chunks:
+            return []
+
     overview = _document_overview(query, chunks)
     if overview is not None:
         return overview
 
+    if lecture is not None:
+        query = re.sub(r"\blecture\s+(?:\d+|[a-z]+)\b", "", query, flags=re.IGNORECASE)
     terms = extract_search_terms(query)
     if not terms:
         return []

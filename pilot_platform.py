@@ -453,6 +453,8 @@ class PilotStore:
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(documents)")
             }
+            if "lecture_number" not in document_columns:
+                connection.execute("ALTER TABLE documents ADD COLUMN lecture_number INTEGER")
             if "extracted_chars" not in document_columns:
                 connection.execute(
                     """
@@ -1143,9 +1145,9 @@ class PilotStore:
         document_type: str,
         content: bytes,
         extracted_text: str,
+        lecture_number: Optional[int] = None,
     ) -> Dict:
-        if document_type not in {"syllabus", "transcript"}:
-            raise PilotValidationError("Invalid document type.")
+        self.validate_document_category(document_type, lecture_number)
         course = self.get_course(course_id)
         if not course or course["owner_id"] != owner_id:
             raise PilotValidationError("Course not found.")
@@ -1227,6 +1229,7 @@ class PilotStore:
             "course_id": course_id,
             "filename": original_name,
             "document_type": document_type,
+            "lecture_number": lecture_number,
             "stored_path": str(stored_path.relative_to(self.data_dir)),
             "extracted_path": str(extracted_path.relative_to(self.data_dir)),
             "byte_size": len(content),
@@ -1259,10 +1262,10 @@ class PilotStore:
             connection.execute(
                 """
                 INSERT INTO documents
-                    (id, course_id, filename, document_type, stored_path,
+                    (id, course_id, filename, document_type, lecture_number, stored_path,
                      extracted_path, byte_size, extracted_chars, sha256, uploaded_at)
                 VALUES
-                    (:id, :course_id, :filename, :document_type, :stored_path,
+                    (:id, :course_id, :filename, :document_type, :lecture_number, :stored_path,
                      :extracted_path, :byte_size, :extracted_chars, :sha256, :uploaded_at)
                 """,
                 record,
@@ -1273,6 +1276,36 @@ class PilotStore:
             )
         return record
 
+    @staticmethod
+    def validate_document_category(document_type, lecture_number):
+        if document_type not in {"syllabus", "transcript", "lecture_transcript", "material"}:
+            raise PilotValidationError("Invalid document type.")
+        if document_type == "lecture_transcript":
+            if type(lecture_number) is not int or not 1 <= lecture_number <= 100:
+                raise PilotValidationError("Choose a lecture number from 1 to 100.")
+        elif lecture_number is not None:
+            raise PilotValidationError("Only lecture transcripts can have a lecture number.")
+
+    def set_document_category(self, course_id, owner_id, document_id, document_type,
+                              lecture_number=None):
+        self.validate_document_category(document_type, lecture_number)
+        # Changing an existing file into a syllabus must not silently replace another.
+        if document_type == "syllabus":
+            raise PilotValidationError("Use the syllabus upload form to replace a syllabus.")
+        course = self.get_course(course_id)
+        if not course or course["owner_id"] != owner_id:
+            raise PilotValidationError("Course not found.")
+        with self._connect() as connection:
+            result = connection.execute(
+                "UPDATE documents SET document_type = ?, lecture_number = ? "
+                "WHERE id = ? AND course_id = ?",
+                (document_type, lecture_number, document_id, course_id),
+            )
+            if result.rowcount != 1:
+                raise PilotValidationError("Document not found.")
+            connection.execute("UPDATE courses SET updated_at = ? WHERE id = ?",
+                               (utc_now(), course_id))
+
     def list_documents(self, course_id: str, owner_id: Optional[str] = None) -> List[Dict]:
         course = self.get_course(course_id)
         if not course or (owner_id and course["owner_id"] != owner_id):
@@ -1280,7 +1313,7 @@ class PilotStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, course_id, filename, document_type, byte_size,
+                SELECT id, course_id, filename, document_type, lecture_number, byte_size,
                        extracted_chars, sha256, uploaded_at
                 FROM documents WHERE course_id = ?
                 ORDER BY uploaded_at DESC
@@ -1289,14 +1322,14 @@ class PilotStore:
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def load_course_materials(self, course_id: str) -> Tuple[str, Dict[str, str], Dict]:
+    def load_course_materials(self, course_id: str, include_metadata: bool = False):
         course = self.get_course(course_id)
         if not course:
             raise PilotValidationError("Course not found.")
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT filename, document_type, extracted_path, stored_path
+                SELECT filename, document_type, lecture_number, extracted_path, stored_path
                 FROM documents WHERE course_id = ?
                 ORDER BY uploaded_at ASC
                 """,
@@ -1305,6 +1338,7 @@ class PilotStore:
 
         syllabus = ""
         sources: Dict[str, str] = {}
+        source_metadata = {}
         for row in rows:
             path = (self.data_dir / row["extracted_path"]).resolve()
             try:
@@ -1329,10 +1363,16 @@ class PilotStore:
                 if display_name in sources:
                     display_name = f"{Path(display_name).stem}-{len(sources) + 1}{Path(display_name).suffix}"
                 sources[display_name] = text
+                source_metadata[display_name] = {
+                    "document_type": row["document_type"],
+                    "lecture_number": row["lecture_number"],
+                }
         try:
             concept_map = json.loads(course["concept_map_json"] or "{}")
         except json.JSONDecodeError:
             concept_map = {}
+        if include_metadata:
+            return syllabus, sources, concept_map, source_metadata
         return syllabus, sources, concept_map
 
     def delete_document(self, document_id: str, course_id: str, owner_id: str) -> None:

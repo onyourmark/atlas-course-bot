@@ -139,7 +139,16 @@ def extract_document_text(filename: str, content: bytes) -> str:
     text = ""
     try:
         if extension in {".md", ".txt"}:
-            text = content.decode("utf-8", errors="replace")
+            if content.startswith((b"\xff\xfe", b"\xfe\xff")):
+                text = content.decode("utf-16")
+            elif b"\x00" in content:
+                # Windows text exports may use UTF-16 without a byte-order mark.
+                even_nulls = content[::2].count(0)
+                odd_nulls = content[1::2].count(0)
+                encoding = "utf-16-le" if odd_nulls > even_nulls else "utf-16-be"
+                text = content.decode(encoding)
+            else:
+                text = content.decode("utf-8-sig")
 
         elif extension == ".docx":
             from io import BytesIO
@@ -1287,7 +1296,7 @@ class PilotStore:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT filename, document_type, extracted_path
+                SELECT filename, document_type, extracted_path, stored_path
                 FROM documents WHERE course_id = ?
                 ORDER BY uploaded_at ASC
                 """,
@@ -1305,6 +1314,14 @@ class PilotStore:
             if not path.exists():
                 continue
             text = path.read_text(encoding="utf-8")
+            if "\x00" in text and Path(row["filename"]).suffix.lower() in {".txt", ".md"}:
+                original = (self.data_dir / row["stored_path"]).resolve()
+                try:
+                    original.relative_to(self.data_dir)
+                except ValueError as exc:
+                    raise PilotConfigurationError("Unsafe stored document path.") from exc
+                # Recover previously misdecoded text in memory; retain originals.
+                text = extract_document_text(row["filename"], original.read_bytes())
             if row["document_type"] == "syllabus":
                 syllabus = text
             else:

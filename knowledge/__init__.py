@@ -272,7 +272,7 @@ def search_chunk_matches(
     chunks: List[Dict],
     max_chunks: int = 4,
 ) -> List[Dict]:
-    """Find relevant course sources and return one best excerpt per source."""
+    """Find relevant passages, allowing several passages from a long source."""
     if not chunks:
         return []
 
@@ -280,12 +280,19 @@ def search_chunk_matches(
     if not terms:
         return []
 
+    # An explicitly named topic can match even when the surrounding wording
+    # differs from the lecture. Never substitute an unrelated capitalized topic.
+    named_terms = {
+        word.lower() for word in re.findall(r"\b[A-Z][A-Za-z0-9_-]*\b", query)
+        if word.lower() in terms
+    }
     scored = []
     for chunk in chunks:
         words = Counter(re.findall(r"\b[A-Za-z0-9][A-Za-z0-9_-]*\b", chunk["text"].lower()))
         matched_terms = [term for term in terms if words[term] > 0]
         required_term_count = 1 if len(terms) == 1 else 2
-        if len(matched_terms) < required_term_count:
+        named_topic_match = bool(named_terms) and named_terms.issubset(matched_terms)
+        if len(matched_terms) < required_term_count and not named_topic_match:
             continue
 
         distinct_match_score = len(matched_terms) * 10
@@ -296,12 +303,12 @@ def search_chunk_matches(
     scored.sort(key=lambda item: (-item[0], item[1]["display_name"], item[1]["chunk_idx"]))
 
     matches: List[Dict] = []
-    used_sources = set()
+    used_passages = set()
     for score, chunk, matched_terms in scored:
-        source_key = (chunk["source_type"], chunk["source"])
-        if source_key in used_sources:
+        passage_key = (chunk["source_type"], chunk["source"], chunk["chunk_idx"])
+        if passage_key in used_passages:
             continue
-        used_sources.add(source_key)
+        used_passages.add(passage_key)
         matches.append({
             **chunk,
             "score": score,

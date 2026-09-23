@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from cryptography.fernet import Fernet, InvalidToken
+from transcript_text import clean_caption_text
 
 from ai_providers import DEFAULT_MODEL_BY_PROVIDER, normalize_provider, validate_provider_model
 
@@ -213,6 +214,7 @@ def extract_document_text(filename: str, content: bytes) -> str:
     except Exception as exc:
         raise PilotValidationError(f"ATLAS could not read {name}: {exc}") from exc
 
+    text = clean_caption_text(text)
     if not text.strip():
         raise PilotValidationError(
             "No readable text was found. Add text or use text recognition (OCR) before uploading."
@@ -1356,6 +1358,7 @@ class PilotStore:
                     raise PilotConfigurationError("Unsafe stored document path.") from exc
                 # Recover previously misdecoded text in memory; retain originals.
                 text = extract_document_text(row["filename"], original.read_bytes())
+            text = clean_caption_text(text)
             if row["document_type"] == "syllabus":
                 syllabus = text
             else:

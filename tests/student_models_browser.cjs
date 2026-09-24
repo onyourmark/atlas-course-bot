@@ -32,5 +32,12 @@ vm.runInContext(fs.readFileSync('static/student_models.js','utf8'),context);
   if(catalog[provider].workspace) assert.equal(body.student_workspace,'workspace123');
   assert.ok(!calls[0].options.body.includes('new-provider-secret'));
  }
- console.log('Browser routing checks passed for all providers, workspace IDs, and key isolation.');
+ calls.length=0;
+ vm.runInContext("studentConnection={provider:'openai',model:'test',key:'',saved:true}",context);
+ await context.studentModelChat({message:'hi'});
+ assert.equal(JSON.parse(calls[0].options.body).use_saved_key,true);
+ assert.equal(calls[0].options.headers['X-ATLAS-Student-Key'],undefined);
+ context.fetch=async()=>({ok:false,json:async()=>({detail:'Your saved key expired.'})});
+ await assert.rejects(()=>context.studentModelChat({message:'hi'}),/expired/);
+ console.log('Browser routing checks passed for all providers, saved credentials, expiry errors, and key isolation.');
 })().catch(e=>{console.error(e);process.exit(1)});

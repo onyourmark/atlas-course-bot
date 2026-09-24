@@ -6,6 +6,9 @@ Built with FastAPI and the Anthropic and OpenAI APIs.
 """
 
 import json
+import asyncio
+from contextlib import suppress
+from urllib.parse import urlsplit
 import hmac
 import os
 import re
@@ -21,7 +24,7 @@ load_dotenv()
 
 import anthropic
 import openai
-from fastapi import FastAPI, HTTPException, Header, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Header, Cookie, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -48,6 +51,8 @@ from ai_providers import (
     normalize_provider,
     validate_provider_model,
 )
+from student_credentials import StudentCredentials
+
 from pilot_platform import (
     MAX_DOCUMENT_BYTES,
     ALLOWED_DOCUMENT_EXTENSIONS,
@@ -145,6 +150,7 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     message: str = Field(min_length=1, max_length=4000)
+    use_saved_key: bool = False
     student_provider: Literal["course", "openai", "anthropic", "local", "deepseek_cn", "qwen_cn", "kimi_cn", "glm_cn", "minimax_cn", "qwen_us", "fireworks_us"] = "course"
     student_workspace: Optional[str] = Field(default=None, max_length=63, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$")
     student_model: Optional[str] = Field(default=None, min_length=1, max_length=150, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
@@ -154,6 +160,12 @@ class ChatRequest(BaseModel):
     mode: Literal[
         "course_chat", "project_builder", "research_innovation"
     ] = "course_chat"
+
+
+class RememberStudentKeyRequest(ChatRequest):
+    message: str = "Model settings"
+    weeks: Literal[1, 2, 3, 4]
+    local_url: str = Field(default="", max_length=500)
 
 
 class FeedbackRequest(BaseModel):
@@ -283,7 +295,18 @@ async def lifespan(app: FastAPI):
     print("ATLAS ready to serve requests")
     print("="*60 + "\n")
 
-    yield
+    async def purge_student_keys():
+        while True:
+            if PILOT_STORE is not None:
+                StudentCredentials(PILOT_STORE).purge()
+            await asyncio.sleep(60)
+    cleanup = asyncio.create_task(purge_student_keys())
+    try:
+        yield
+    finally:
+        cleanup.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup
 
     # Cleanup (if needed)
     print("ATLAS shutting down...")
@@ -815,10 +838,89 @@ async def get_course_page(course_id: str):
     })
 
 
+def _student_vault():
+    return StudentCredentials(_require_pilot_store())
+
+
+def _student_settings_guard(request):
+    origin = request.headers.get("origin")
+    if request.headers.get("x-atlas-settings") != "1" or (origin and urlsplit(origin).netloc != request.headers.get("host")):
+        raise HTTPException(status_code=403, detail="Open model settings from this ATLAS website.")
+
+
+def _student_saved_public(saved):
+    if not saved:
+        return {"saved": False}
+    result = {k: v for k, v in saved.items() if k != "key"}
+    result["saved"] = True
+    # Local servers are called in the browser, so their token must be available there.
+    if saved["provider"] == "local":
+        result["key"] = saved["key"]
+    return result
+
+
+@app.get("/course/{course_id}/student-key")
+async def get_student_key(course_id: str, request: Request):
+    _validate_course(course_id)
+    saved = _student_vault().get(request.cookies.get("atlas_student_key"), course_id)
+    return JSONResponse(_student_saved_public(saved), headers={"Cache-Control": "no-store"})
+
+
+@app.put("/course/{course_id}/student-key")
+async def remember_student_key(course_id: str, payload: RememberStudentKeyRequest, request: Request,
+    student_api_key: Annotated[Optional[str], Header(alias="X-ATLAS-Student-Key")] = None):
+    _validate_course(course_id)
+    _student_settings_guard(request)
+    if payload.student_provider == "course" or not payload.student_model:
+        raise HTTPException(status_code=400, detail="Choose your own provider and model first.")
+    option = STUDENT_PROVIDERS.get(payload.student_provider, {})
+    if option.get("workspace") and not payload.student_workspace:
+        raise HTTPException(status_code=400, detail="Enter your Alibaba workspace ID.")
+    if option.get("restricted_models") and payload.student_model not in {m[0] for m in option["models"]}:
+        raise HTTPException(status_code=400, detail="Choose a listed U.S.-only model.")
+    if payload.student_provider == "local":
+        url = urlsplit(payload.local_url)
+        if url.scheme not in {"http", "https"} or url.hostname not in {"localhost", "127.0.0.1", "::1"} or url.username or url.password or url.query or url.fragment:
+            raise HTTPException(status_code=400, detail="Use a localhost address for your local model.")
+    vault = _student_vault()
+    previous = request.cookies.get("atlas_student_key")
+    key = student_api_key or ""
+    if not key and payload.use_saved_key:
+        saved = vault.get(previous, course_id)
+        if not saved or saved["provider"] != payload.student_provider:
+            raise HTTPException(status_code=400, detail="Enter your API key again.")
+        key = saved["key"]
+    if payload.student_provider != "local" and (not 10 <= len(key) <= 500 or not re.fullmatch(r"[!-~]+", key)):
+        raise HTTPException(status_code=400, detail="Enter your own API key.")
+    if len(key) > 500:
+        raise HTTPException(status_code=400, detail="The key is too long.")
+    saved = {"provider": payload.student_provider, "model": payload.student_model,
+             "workspace": payload.student_workspace or "", "url": payload.local_url,
+             "key": key, "weeks": payload.weeks}
+    token, expiry = vault.save(previous, course_id, saved, payload.weeks)
+    saved["expires_at"] = expiry
+    response = JSONResponse(_student_saved_public(saved), headers={"Cache-Control": "no-store"})
+    response.set_cookie("atlas_student_key", token, max_age=payload.weeks * 7 * 86400,
+                        httponly=True, secure=SECURE_COOKIES, samesite="strict", path=f"/course/{course_id}")
+    return response
+
+
+@app.delete("/course/{course_id}/student-key")
+async def forget_student_key(course_id: str, request: Request):
+    _validate_course(course_id)
+    _student_settings_guard(request)
+    _student_vault().forget(request.cookies.get("atlas_student_key"), course_id)
+    response = JSONResponse({"saved": False}, headers={"Cache-Control": "no-store"})
+    response.delete_cookie("atlas_student_key", path=f"/course/{course_id}", httponly=True,
+                           secure=SECURE_COOKIES, samesite="strict")
+    return response
+
+
 @app.post("/course/{course_id}/chat")
 async def chat(
     course_id: str, request: ChatRequest,
     student_api_key: Annotated[Optional[str], Header(alias="X-ATLAS-Student-Key")] = None,
+    saved_student_cookie: Annotated[Optional[str], Cookie(alias="atlas_student_key")] = None,
 ):
     """
     Main chat endpoint. Processes a user message and returns an AI response.
@@ -826,6 +928,13 @@ async def chat(
     config = _validate_course(course_id)
     _require_enabled_guide(config, request.mode)
     session_id = _safe_session_id(request.session_id)
+    if request.use_saved_key:
+        saved = _student_vault().get(saved_student_cookie, course_id)
+        if not saved:
+            raise HTTPException(status_code=401, detail="Your saved key expired or was forgotten. Open Model settings and enter it again.")
+        if saved["provider"] != request.student_provider:
+            raise HTTPException(status_code=400, detail="The saved key belongs to a different provider. Reopen Model settings.")
+        student_api_key = saved["key"]
     personal = request.student_provider != "course"
     if personal and not request.student_model:
         raise HTTPException(status_code=400, detail="Enter the model ID from your provider or local model server.")

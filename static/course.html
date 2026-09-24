@@ -37,7 +37,8 @@
 <div id="student-workspace-field" hidden><label for="student-workspace">Alibaba workspace ID</label><input id="student-workspace" maxlength="63" autocomplete="off" spellcheck="false" placeholder="Workspace ID from the selected Alibaba region"></div>
 <label for="student-key" id="student-key-label">Your API key</label><input type="password" id="student-key" maxlength="500" autocomplete="off" spellcheck="false">
 <p>Your questions, recent conversation, and relevant course materials go to the model you choose. Remote providers bill your account. Personal requests do not use the instructor’s question allowance.</p>
-<p>Your key stays in memory while this page is open. For online providers, ATLAS forwards each request using your key without saving it. Refreshing clears these settings. A ChatGPT or Claude subscription does not include API credit.</p>
+<label for="student-remember">Remember my key</label><select id="student-remember"><option value="0">This tab only (refresh also clears it)</option><option value="1">1 week</option><option value="2">2 weeks</option><option value="3">3 weeks</option><option value="4">4 weeks</option></select>
+<p>Weekly keys are encrypted on ATLAS and restored only in this browser for this course. They expire automatically. On a shared computer, use the tab-only option. A ChatGPT or Claude subscription does not include API credit.</p>
 </div>
 <div id="student-local-fields" hidden>
 <label for="student-url">Local server address</label><input id="student-url" type="url" value="http://localhost:11434/v1" spellcheck="false">
@@ -46,10 +47,11 @@
 <p>For Ollama, set OLLAMA_ORIGINS to <code id="student-origin"></code> and restart Ollama. For LM Studio, enable CORS (browser access) in server settings. Keep the server restricted to your computer.</p>
 <p><a href="https://docs.ollama.com/faq" target="_blank" rel="noopener noreferrer">Ollama setup</a> · <a href="https://lmstudio.ai/docs/developer/core/server/settings" target="_blank" rel="noopener noreferrer">LM Studio setup</a></p>
 </div>
+<p id="student-saved-status" role="status"></p><button type="button" onclick="forgetStudentKey()">Forget my key now</button>
 <p id="student-settings-error" role="alert"></p>
 <div class="dialog-actions"><button type="submit" id="student-apply">Apply settings</button><button type="button" onclick="document.getElementById('student-model-dialog').close()">Cancel</button></div>
 </form></dialog>
-<script src="/static/student_models.js?v=2"></script>
+<script src="/static/student_models.js?v=3"></script>
 <script>
 function esc(s){var d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
 function md(t){
@@ -70,7 +72,7 @@ function md(t){
 }
 var courseId=location.pathname.split('/').pop(),sessionId,currentCourse=null,conceptMap=null,messageHistory=[],answerMode='direct',guideMode='course_chat';
 function uuid(){return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c==='x'?r:(r&3|8);return v.toString(16)})}
-function init(){sessionId=sessionStorage.getItem('atlas_session_id')||uuid();sessionStorage.setItem('atlas_session_id',sessionId);loadCourse();loadConcepts()}
+function init(){studentRestorePromise=restoreStudentConnection();sessionId=sessionStorage.getItem('atlas_session_id')||uuid();sessionStorage.setItem('atlas_session_id',sessionId);loadCourse();loadConcepts()}
 async function loadCourse(){try{var r=await fetch('/course/'+encodeURIComponent(courseId)+'/metadata',{cache:'no-store'});if(!r.ok)throw Error();currentCourse=await r.json();document.getElementById('course-code').textContent=currentCourse.code;document.getElementById('course-name').textContent=currentCourse.name;document.getElementById('welcome-title').textContent='Welcome to '+currentCourse.code;document.getElementById('input').placeholder='Ask about '+currentCourse.code+'...'}catch(e){console.error(e)}}
 async function loadConcepts(){try{var r=await fetch('/course/'+courseId+'/concept-map');conceptMap=await r.json();renderConcepts()}catch(e){document.getElementById('side-foot').textContent='Error loading concepts'}}
 function renderConcepts(){var list=document.getElementById('concepts');list.innerHTML='';if(!conceptMap||!conceptMap.concepts||!conceptMap.concepts.length){document.getElementById('side-foot').textContent='No concept map has been added yet.';return}var done=JSON.parse(localStorage.getItem('atlas_progress_'+courseId)||'{}'),n=0;conceptMap.concepts.forEach(function(c){if(done[c.id])n++;var row=document.createElement('div');row.className='concept';var dot=document.createElement('span');dot.className='dot '+(done[c.id]?'explored':(c.lectures&&c.lectures.length?'covered':''));var box=document.createElement('div');box.innerHTML='<div class="concept-name">'+esc(c.name)+'</div><div class="concept-lectures">'+(c.lectures?'L'+c.lectures.join(', L'):'')+'</div>';row.append(dot,box);row.onclick=function(){sendMessage('Tell me about '+c.name+' and what I need to know before studying it.')};list.appendChild(row)});document.getElementById('progress-count').textContent=n;document.getElementById('progress-total').textContent=conceptMap.concepts.length;document.getElementById('progress-fill').style.width=(100*n/conceptMap.concepts.length)+'%';document.getElementById('side-foot').textContent='Select a concept to explore it with ATLAS.'}

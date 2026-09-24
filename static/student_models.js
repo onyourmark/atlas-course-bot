@@ -1,6 +1,36 @@
-// Personal credentials stay in this page's memory, never browser storage.
+// Keys are kept in memory or encrypted on ATLAS; browser storage never holds keys.
 let studentProviderCatalog = null;
+let studentRestorePromise = null, studentRestoreError = "";
 let studentConnection = {provider: 'course', model: '', key: '', url: ''};
+function studentKeyPath() { return '/course/' + encodeURIComponent(courseId) + '/student-key'; }
+function updateStudentModelButton() {
+    document.getElementById('model-settings-button').textContent = studentConnection.provider === 'course' ? 'Model: Course default' : 'Model: ' + studentConnection.model;
+}
+async function restoreStudentConnection() {
+    try {
+        const response = await fetch(studentKeyPath(), {cache: 'no-store', credentials: 'same-origin'});
+        if (!response.ok) throw Error();
+        const data = await response.json();
+        if (data.saved) studentConnection = {...data, key: data.key || ''};
+        studentRestoreError = '';
+        updateStudentModelButton();
+    } catch (_) { studentRestoreError = 'Could not check your saved model settings. Refresh the page before sending a question.'; }
+}
+async function deleteSavedStudentKey() {
+    const response = await fetch(studentKeyPath(), {method: 'DELETE', headers: {'X-ATLAS-Settings': '1'}, credentials: 'same-origin'});
+    if (!response.ok) throw Error('Could not delete the saved key. Please try again.');
+}
+async function forgetStudentKey() {
+    try {
+        await deleteSavedStudentKey();
+        studentConnection = {provider: 'course', model: '', key: '', url: ''};
+        document.getElementById('student-key').value = '';
+        document.getElementById('student-provider').value = 'course';
+        document.getElementById('student-remember').value = '0';
+        updateStudentFields(); updateStudentModelButton();
+        document.getElementById('student-saved-status').textContent = 'Saved key deleted. Using the course default.';
+    } catch (error) { document.getElementById('student-settings-error').textContent = error.message; }
+}
 function localModelURL(value) {
     let url;
     try { url = new URL(value); } catch (_) { throw Error('Enter a local address such as http://localhost:11434/v1.'); }
@@ -36,6 +66,7 @@ function updateStudentFields() {
     document.getElementById('student-local-fields').hidden = provider !== 'local';
     document.getElementById('student-key-label').textContent = provider === 'local' ? 'Local server token (optional)' : 'Your API key';
     document.getElementById('student-key').value = '';
+    document.getElementById('student-key').placeholder = studentConnection.saved && provider === studentConnection.provider ? 'Saved key: leave blank to keep it' : '';
     document.getElementById('student-settings-error').textContent = '';
     const option = studentProviderCatalog?.[provider];
     const choices = document.getElementById('student-model-choice'); choices.replaceChildren();
@@ -51,7 +82,7 @@ function updateStudentFields() {
 async function openStudentSettings() {
     document.getElementById('student-model-dialog').showModal();
     const apply = document.getElementById('student-apply'); apply.disabled = true;
-    try { await loadStudentProviderCatalog(); }
+    try { if (studentRestorePromise) await studentRestorePromise; await loadStudentProviderCatalog(); }
     catch (_) { document.getElementById('student-settings-error').textContent = 'Could not load the provider options. Close and reopen Model settings.'; return; }
     finally { apply.disabled = false; }
     document.getElementById('student-provider').value = studentConnection.provider;
@@ -63,33 +94,54 @@ async function openStudentSettings() {
     document.getElementById('student-workspace').value = studentConnection.workspace || '';
     document.getElementById('student-key').value = studentConnection.key;
     document.getElementById('student-url').value = studentConnection.url || 'http://localhost:11434/v1';
+    document.getElementById('student-remember').value = String(studentConnection.weeks || 0);
+    document.getElementById('student-saved-status').textContent = studentConnection.saved ? 'Saved in this browser until ' + new Date(studentConnection.expires_at * 1000).toLocaleString() + '.' : 'No key saved for this browser and course.';
 }
 
-function saveStudentSettings(event) {
+async function saveStudentSettings(event) {
     event.preventDefault();
     const provider = document.getElementById('student-provider').value;
     const model = document.getElementById('student-model').value.trim();
     const key = document.getElementById('student-key').value.trim();
     const url = document.getElementById('student-url').value.trim();
     const workspace = document.getElementById('student-workspace').value.trim();
+    const weeks = Number(document.getElementById('student-remember').value);
+    const reuse = !!studentConnection.saved && studentConnection.provider === provider && !key;
+    const apply = document.getElementById('student-apply'); apply.disabled = true;
     try {
         if (provider !== 'course' && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,149}$/.test(model)) throw Error('Enter the exact model ID shown by your provider or local server.');
-        if (provider !== 'course' && provider !== 'local' && key.length < 10) throw Error('Enter your own API key.');
+        if (provider !== 'course' && provider !== 'local' && key.length < 10 && !(reuse && weeks > 0)) throw Error('Enter your own API key.');
         if (studentProviderCatalog?.[provider]?.workspace && !/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/.test(workspace)) throw Error('Enter your Alibaba workspace ID, not its URL.');
         if (provider === 'local') localModelURL(url);
-        studentConnection = provider === 'course' ? {provider, model: '', key: '', url: ''} : {provider, model, key, url, workspace};
-        document.getElementById('model-settings-button').textContent = provider === 'course' ? 'Model: Course default' : 'Model: ' + model;
+        if (provider !== 'course' && weeks > 0) {
+            const headers = {'Content-Type': 'application/json', 'X-ATLAS-Settings': '1'};
+            if (key) headers['X-ATLAS-Student-Key'] = key;
+            const response = await fetch(studentKeyPath(), {method: 'PUT', credentials: 'same-origin', headers,
+                body: JSON.stringify({student_provider: provider, student_model: model, student_workspace: workspace || null, local_url: url, weeks, use_saved_key: reuse})});
+            const data = await response.json();
+            if (!response.ok) throw Error(typeof data.detail === 'string' ? data.detail : 'Could not save your key. Check the settings.');
+            studentConnection = {...data, key: data.key || ''};
+        } else {
+            await deleteSavedStudentKey();
+            studentConnection = provider === 'course' ? {provider, model: '', key: '', url: ''} : {provider, model, key, url, workspace};
+        }
+        studentRestoreError = '';
+        updateStudentModelButton();
         document.getElementById('student-key').value = '';
         document.getElementById('student-model-dialog').close();
     } catch (error) { document.getElementById('student-settings-error').textContent = error.message; }
+    finally { apply.disabled = false; }
 }
 async function studentModelChat(payload) {
+    if (studentRestorePromise) await studentRestorePromise;
+    if (studentRestoreError) throw Error(studentRestoreError);
     const connection = {...studentConnection};
     payload.student_provider = connection.provider;
+    if (connection.saved) payload.use_saved_key = true;
     if (connection.provider !== 'course') payload.student_model = connection.model;
     if (connection.workspace) payload.student_workspace = connection.workspace;
     const headers = {'Content-Type': 'application/json'};
-    if (connection.provider !== 'course' && connection.provider !== 'local') headers['X-ATLAS-Student-Key'] = connection.key;
+    if (connection.provider !== 'course' && connection.provider !== 'local' && !connection.saved) headers['X-ATLAS-Student-Key'] = connection.key;
     const response = await fetch('/course/' + encodeURIComponent(courseId) + '/chat', {
         method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store'
     });

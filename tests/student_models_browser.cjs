@@ -1,0 +1,24 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const context=vm.createContext({URL,AbortSignal,courseId:'test',fetch:null});
+vm.runInContext(fs.readFileSync('static/student_models.js','utf8'),context);
+(async()=>{
+ for(const url of ['https://example.com/v1','http://localhost.evil.test/v1','file:///v1','http://user:pass@localhost/v1']) assert.throws(()=>context.localModelURL(url));
+ assert.equal(context.localModelURL('http://localhost:11434/v1/'),'http://localhost:11434/v1/chat/completions');
+ const calls=[];
+ context.fetch=async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>url.startsWith('/course')?{local_request:{model:'test',messages:[]},sources:[]}:{choices:[{message:{content:'Local answer'}}]}}};
+ vm.runInContext("studentConnection={provider:'local',model:'test',key:'local-secret',url:'http://localhost:11434/v1'}",context);
+ assert.equal((await context.studentModelChat({message:'hi'})).response,'Local answer');
+ assert.ok(!JSON.stringify(calls[0]).includes('local-secret'));
+ assert.equal(calls[1].options.headers.Authorization,'Bearer local-secret');
+ calls.length=0;
+ vm.runInContext("studentConnection={provider:'openai',model:'test',key:'remote-secret',url:''}",context);
+ await context.studentModelChat({message:'hi'});
+ assert.equal(calls.length,1);
+ assert.equal(calls[0].options.headers['X-ATLAS-Student-Key'],'remote-secret');
+ assert.ok(!calls[0].options.body.includes('remote-secret'));
+ calls.length=0;
+ vm.runInContext("studentConnection={provider:'course',model:'',key:'',url:''}",context);
+ await context.studentModelChat({message:'hi'});
+ assert.equal(calls[0].options.headers['X-ATLAS-Student-Key'],undefined);
+ console.log('Browser routing checks passed: local-only URLs, key isolation, remote and default paths.');
+})().catch(e=>{console.error(e);process.exit(1)});

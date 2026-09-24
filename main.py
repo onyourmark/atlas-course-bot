@@ -14,14 +14,14 @@ from dataclasses import dataclass
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import anthropic
 import openai
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Header, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -143,6 +143,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     message: str = Field(min_length=1, max_length=4000)
+    student_provider: Literal["course", "openai", "anthropic", "local"] = "course"
+    student_model: Optional[str] = Field(default=None, min_length=1, max_length=150, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
     lecture_number: Optional[int] = Field(default=None, ge=1, le=15)
     history: Optional[List[ChatMessage]] = Field(default=None, max_length=12)
     session_id: Optional[str] = Field(default=None, max_length=100)
@@ -458,6 +460,10 @@ def _call_course_model(
     model = config.get("_model", MODEL)
     provider, client = _get_client(course_id)
 
+    return _call_model(provider, client, model, messages, max_tokens, system_prompt)
+
+
+def _call_model(provider, client, model, messages, max_tokens, system_prompt):
     if provider == "openai":
         request: Dict[str, Any] = {
             "model": model,
@@ -792,13 +798,22 @@ async def get_course_page(course_id: str):
 
 
 @app.post("/course/{course_id}/chat")
-async def chat(course_id: str, request: ChatRequest):
+async def chat(
+    course_id: str, request: ChatRequest,
+    student_api_key: Annotated[Optional[str], Header(alias="X-ATLAS-Student-Key")] = None,
+):
     """
     Main chat endpoint. Processes a user message and returns an AI response.
     """
     config = _validate_course(course_id)
     _require_enabled_guide(config, request.mode)
     session_id = _safe_session_id(request.session_id)
+    personal = request.student_provider != "course"
+    if personal and not request.student_model:
+        raise HTTPException(status_code=400, detail="Enter the model ID from your provider or local model server.")
+    if request.student_provider in {"openai", "anthropic"}:
+        if not student_api_key or not 10 <= len(student_api_key.strip()) <= 500 or not re.fullmatch(r"[!-~]+", student_api_key.strip()):
+            raise HTTPException(status_code=400, detail="Enter your own API key in Model settings.")
 
     system_prompt = SYSTEM_PROMPTS.get(course_id, "")
     chunks = COURSE_SOURCE_CHUNKS.get(course_id, [])
@@ -894,7 +909,16 @@ async def chat(course_id: str, request: ChatRequest):
         "content": user_message
     })
 
-    if config.get("_managed"):
+    if request.student_provider == "local":
+        # The browser calls localhost on the student's computer, never on Railway.
+        return JSONResponse({
+            "local_request": {"model": request.student_model,
+                              "messages": [{"role": "system", "content": system_prompt}] + messages,
+                              "max_tokens": 2048, "stream": False},
+            "sources": source_payload, "materials_found": bool(source_payload),
+        }, headers={"Cache-Control": "no-store"})
+
+    if config.get("_managed") and not personal:
         store = _require_pilot_store()
         if store.remaining_questions(course_id) <= 0:
             raise HTTPException(
@@ -906,16 +930,24 @@ async def chat(course_id: str, request: ChatRequest):
     try:
         model = config.get("_model", MODEL)
         provider = config.get("_provider", "anthropic")
-        response = _call_course_model(
-            course_id=course_id,
-            max_tokens=2048,
-            system_prompt=system_prompt,
-            messages=messages,
-        )
+        if personal:
+            provider, model = request.student_provider, request.student_model
+            client_type = openai.OpenAI if provider == "openai" else anthropic.Anthropic
+            # Explicit official endpoints; no student URL is used by the server.
+            endpoint = "https://api.openai.com/v1" if provider == "openai" else "https://api.anthropic.com"
+            with client_type(api_key=student_api_key.strip(), base_url=endpoint, timeout=90.0, max_retries=0) as client:
+                response = _call_model(provider, client, model, messages, 2048, system_prompt)
+        else:
+            response = _call_course_model(
+                course_id=course_id,
+                max_tokens=2048,
+                system_prompt=system_prompt,
+                messages=messages,
+            )
 
         assistant_message = response.text
 
-        if config.get("_managed"):
+        if config.get("_managed") and not personal:
             _require_pilot_store().record_usage(
                 course_id=course_id,
                 professor_id=config["_owner_id"],
@@ -946,7 +978,8 @@ async def chat(course_id: str, request: ChatRequest):
         )
         raise HTTPException(
             status_code=502,
-            detail="The course assistant could not complete that request. Please try again.",
+            detail=("Your model could not complete the request. Check your API key, model ID, account balance, and access to that model. The instructor's key was not used."
+                    if personal else "The course assistant could not complete that request. Please try again."),
         ) from exc
 
 

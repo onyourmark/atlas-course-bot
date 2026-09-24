@@ -20,5 +20,17 @@ vm.runInContext(fs.readFileSync('static/student_models.js','utf8'),context);
  vm.runInContext("studentConnection={provider:'course',model:'',key:'',url:''}",context);
  await context.studentModelChat({message:'hi'});
  assert.equal(calls[0].options.headers['X-ATLAS-Student-Key'],undefined);
- console.log('Browser routing checks passed: local-only URLs, key isolation, remote and default paths.');
+ const catalog=JSON.parse(fs.readFileSync('static/student_model_providers.json','utf8'));
+ for(const provider of Object.keys(catalog)) {
+  calls.length=0;
+  vm.runInContext('studentConnection='+JSON.stringify({provider,model:catalog[provider].models[0][0],key:'new-provider-secret',workspace:catalog[provider].workspace?'workspace123':''}),context);
+  await context.studentModelChat({message:'hi'});
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].options.headers['X-ATLAS-Student-Key'],'new-provider-secret');
+  const body=JSON.parse(calls[0].options.body);
+  assert.equal(body.student_provider,provider);
+  if(catalog[provider].workspace) assert.equal(body.student_workspace,'workspace123');
+  assert.ok(!calls[0].options.body.includes('new-provider-secret'));
+ }
+ console.log('Browser routing checks passed for all providers, workspace IDs, and key isolation.');
 })().catch(e=>{console.error(e);process.exit(1)});

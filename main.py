@@ -61,6 +61,8 @@ from pilot_platform import (
 
 # -- Globals --
 
+STUDENT_PROVIDERS = json.loads((Path(__file__).parent / "static" / "student_model_providers.json").read_text())
+
 CLIENT: Optional[anthropic.Anthropic] = None
 MODEL = os.getenv("ATLAS_MODEL", "claude-sonnet-4-6")
 PILOT_ENABLED = os.getenv("ATLAS_PILOT_ENABLED", "false").lower() == "true"
@@ -143,7 +145,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """Request body for chat endpoint."""
     message: str = Field(min_length=1, max_length=4000)
-    student_provider: Literal["course", "openai", "anthropic", "local"] = "course"
+    student_provider: Literal["course", "openai", "anthropic", "local", "deepseek_cn", "qwen_cn", "kimi_cn", "glm_cn", "minimax_cn", "qwen_us", "fireworks_us"] = "course"
+    student_workspace: Optional[str] = Field(default=None, max_length=63, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$")
     student_model: Optional[str] = Field(default=None, min_length=1, max_length=150, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
     lecture_number: Optional[int] = Field(default=None, ge=1, le=15)
     history: Optional[List[ChatMessage]] = Field(default=None, max_length=12)
@@ -464,6 +467,21 @@ def _call_course_model(
 
 
 def _call_model(provider, client, model, messages, max_tokens, system_prompt):
+    if provider in STUDENT_PROVIDERS:
+        options = STUDENT_PROVIDERS[provider]
+        chat_messages = ([{"role": "system", "content": system_prompt}] if system_prompt else []) + messages
+        response = client.chat.completions.create(
+            model=model, messages=chat_messages, max_tokens=8192, stream=False,
+            extra_body=options.get("extra_body", {}),
+        )
+        answer = response.choices[0].message.content if response.choices else None
+        # Only the final answer is displayed; reasoning fields are not included.
+        if not isinstance(answer, str) or not answer.strip():
+            raise HTTPException(status_code=502, detail="Your model returned no final answer. Try another model. The instructor's key was not used.")
+        usage = response.usage
+        return ProviderResponse(text=answer.strip(),
+                                input_tokens=int(getattr(usage, "prompt_tokens", 0) or 0),
+                                output_tokens=int(getattr(usage, "completion_tokens", 0) or 0))
     if provider == "openai":
         request: Dict[str, Any] = {
             "model": model,
@@ -811,9 +829,16 @@ async def chat(
     personal = request.student_provider != "course"
     if personal and not request.student_model:
         raise HTTPException(status_code=400, detail="Enter the model ID from your provider or local model server.")
-    if request.student_provider in {"openai", "anthropic"}:
+    if personal and request.student_provider != "local":
         if not student_api_key or not 10 <= len(student_api_key.strip()) <= 500 or not re.fullmatch(r"[!-~]+", student_api_key.strip()):
             raise HTTPException(status_code=400, detail="Enter your own API key in Model settings.")
+
+    if request.student_provider in STUDENT_PROVIDERS:
+        option = STUDENT_PROVIDERS[request.student_provider]
+        if option.get("workspace") and not request.student_workspace:
+            raise HTTPException(status_code=400, detail="Enter your Alibaba workspace ID for the selected region.")
+        if option.get("restricted_models") and request.student_model not in {item[0] for item in option["models"]}:
+            raise HTTPException(status_code=400, detail="Choose one of the listed U.S.-only Fireworks models.")
 
     system_prompt = SYSTEM_PROMPTS.get(course_id, "")
     chunks = COURSE_SOURCE_CHUNKS.get(course_id, [])
@@ -932,9 +957,11 @@ async def chat(
         provider = config.get("_provider", "anthropic")
         if personal:
             provider, model = request.student_provider, request.student_model
-            client_type = openai.OpenAI if provider == "openai" else anthropic.Anthropic
+            client_type = anthropic.Anthropic if provider == "anthropic" else openai.OpenAI
             # Explicit official endpoints; no student URL is used by the server.
             endpoint = "https://api.openai.com/v1" if provider == "openai" else "https://api.anthropic.com"
+            if provider in STUDENT_PROVIDERS:
+                endpoint = STUDENT_PROVIDERS[provider]["base_url"].format(workspace=request.student_workspace or "")
             with client_type(api_key=student_api_key.strip(), base_url=endpoint, timeout=90.0, max_retries=0) as client:
                 response = _call_model(provider, client, model, messages, 2048, system_prompt)
         else:

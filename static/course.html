@@ -31,10 +31,13 @@
 <label for="student-provider">Answer using</label>
 <select id="student-provider" onchange="updateStudentFields()"><option value="course">Course default (instructor’s model)</option><option value="openai">My OpenAI account</option><option value="anthropic">My Anthropic account</option><option value="local">Local model on my computer</option></select>
 <div id="student-custom-fields" hidden>
-<label for="student-model">Model ID</label><input id="student-model" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Exact model ID from your provider or local server">
+<p id="student-provider-help"></p>
+<div id="student-model-presets" hidden><label for="student-model-choice">Model</label><select id="student-model-choice" onchange="chooseStudentModel()"></select></div>
+<div id="student-model-custom"><label for="student-model">Model ID</label><input id="student-model" maxlength="150" autocomplete="off" spellcheck="false" placeholder="Exact model ID from your provider or local server"></div>
+<div id="student-workspace-field" hidden><label for="student-workspace">Alibaba workspace ID</label><input id="student-workspace" maxlength="63" autocomplete="off" spellcheck="false" placeholder="Workspace ID from the selected Alibaba region"></div>
 <label for="student-key" id="student-key-label">Your API key</label><input type="password" id="student-key" maxlength="500" autocomplete="off" spellcheck="false">
 <p>Your questions, recent conversation, and relevant course materials go to the model you choose. Remote providers bill your account. Personal requests do not use the instructor’s question allowance.</p>
-<p>Your key stays in memory while this page is open. For OpenAI or Anthropic, ATLAS forwards each request using your key without saving it. Refreshing clears these settings. A ChatGPT or Claude subscription does not include API credit.</p>
+<p>Your key stays in memory while this page is open. For online providers, ATLAS forwards each request using your key without saving it. Refreshing clears these settings. A ChatGPT or Claude subscription does not include API credit.</p>
 </div>
 <div id="student-local-fields" hidden>
 <label for="student-url">Local server address</label><input id="student-url" type="url" value="http://localhost:11434/v1" spellcheck="false">
@@ -44,9 +47,9 @@
 <p><a href="https://docs.ollama.com/faq" target="_blank" rel="noopener noreferrer">Ollama setup</a> · <a href="https://lmstudio.ai/docs/developer/core/server/settings" target="_blank" rel="noopener noreferrer">LM Studio setup</a></p>
 </div>
 <p id="student-settings-error" role="alert"></p>
-<div class="dialog-actions"><button type="submit">Apply settings</button><button type="button" onclick="document.getElementById('student-model-dialog').close()">Cancel</button></div>
+<div class="dialog-actions"><button type="submit" id="student-apply">Apply settings</button><button type="button" onclick="document.getElementById('student-model-dialog').close()">Cancel</button></div>
 </form></dialog>
-<script src="/static/student_models.js?v=1"></script>
+<script src="/static/student_models.js?v=2"></script>
 <script>
 function esc(s){var d=document.createElement('div');d.textContent=String(s);return d.innerHTML}
 function md(t){

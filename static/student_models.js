@@ -1,4 +1,5 @@
 // Personal credentials stay in this page's memory, never browser storage.
+let studentProviderCatalog = null;
 let studentConnection = {provider: 'course', model: '', key: '', url: ''};
 function localModelURL(value) {
     let url;
@@ -8,6 +9,27 @@ function localModelURL(value) {
     }
     return url.href.replace(/\/+$/, '') + '/chat/completions';
 }
+async function loadStudentProviderCatalog() {
+    if (studentProviderCatalog) return;
+    const response = await fetch('/static/student_model_providers.json?v=1', {cache: 'no-store'});
+    if (!response.ok) throw Error('Could not load the provider options. Close and reopen Model settings.');
+    const catalog = await response.json();
+    const select = document.getElementById('student-provider');
+    for (const [groupName, ids] of [
+        ['China-based services', ['deepseek_cn', 'qwen_cn', 'kimi_cn', 'glm_cn', 'minimax_cn']],
+        ['U.S.-hosted Chinese models', ['qwen_us', 'fireworks_us']]
+    ]) {
+        const group = document.createElement('optgroup'); group.label = groupName;
+        ids.forEach(id => { const item = document.createElement('option'); item.value = id; item.textContent = catalog[id].label; group.append(item); });
+        select.append(group);
+    }
+    studentProviderCatalog = catalog;
+}
+function chooseStudentModel() {
+    const preset = document.getElementById('student-model-choice').value;
+    document.getElementById('student-model-custom').hidden = preset !== '';
+    document.getElementById('student-model').value = preset;
+}
 function updateStudentFields() {
     const provider = document.getElementById('student-provider').value;
     document.getElementById('student-custom-fields').hidden = provider === 'course';
@@ -15,26 +37,47 @@ function updateStudentFields() {
     document.getElementById('student-key-label').textContent = provider === 'local' ? 'Local server token (optional)' : 'Your API key';
     document.getElementById('student-key').value = '';
     document.getElementById('student-settings-error').textContent = '';
+    const option = studentProviderCatalog?.[provider];
+    const choices = document.getElementById('student-model-choice'); choices.replaceChildren();
+    (option?.models || []).forEach(([id, name]) => { const item = document.createElement('option'); item.value = id; item.textContent = name; choices.append(item); });
+    if (!option?.restricted_models) { const item = document.createElement('option'); item.value = ''; item.textContent = 'Enter a different model ID'; choices.append(item); }
+    document.getElementById('student-model-presets').hidden = !option;
+    document.getElementById('student-workspace-field').hidden = !option?.workspace;
+    document.getElementById('student-workspace').value = '';
+    const help = document.getElementById('student-provider-help'); help.textContent = option?.help || '';
+    if (option) { const link = document.createElement('a'); link.href = option.docs; link.textContent = ' Provider setup'; link.target = '_blank'; link.rel = 'noopener noreferrer'; help.append(link); }
+    chooseStudentModel();
 }
-function openStudentSettings() {
+async function openStudentSettings() {
+    document.getElementById('student-model-dialog').showModal();
+    const apply = document.getElementById('student-apply'); apply.disabled = true;
+    try { await loadStudentProviderCatalog(); }
+    catch (_) { document.getElementById('student-settings-error').textContent = 'Could not load the provider options. Close and reopen Model settings.'; return; }
+    finally { apply.disabled = false; }
     document.getElementById('student-provider').value = studentConnection.provider;
     updateStudentFields();
+    const choices = document.getElementById('student-model-choice');
+    choices.value = Array.from(choices.options).some(item => item.value === studentConnection.model) ? studentConnection.model : '';
+    chooseStudentModel();
     document.getElementById('student-model').value = studentConnection.model;
+    document.getElementById('student-workspace').value = studentConnection.workspace || '';
     document.getElementById('student-key').value = studentConnection.key;
     document.getElementById('student-url').value = studentConnection.url || 'http://localhost:11434/v1';
-    document.getElementById('student-model-dialog').showModal();
 }
+
 function saveStudentSettings(event) {
     event.preventDefault();
     const provider = document.getElementById('student-provider').value;
     const model = document.getElementById('student-model').value.trim();
     const key = document.getElementById('student-key').value.trim();
     const url = document.getElementById('student-url').value.trim();
+    const workspace = document.getElementById('student-workspace').value.trim();
     try {
         if (provider !== 'course' && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,149}$/.test(model)) throw Error('Enter the exact model ID shown by your provider or local server.');
-        if (['openai', 'anthropic'].includes(provider) && key.length < 10) throw Error('Enter your own API key.');
+        if (provider !== 'course' && provider !== 'local' && key.length < 10) throw Error('Enter your own API key.');
+        if (studentProviderCatalog?.[provider]?.workspace && !/^[A-Za-z0-9][A-Za-z0-9-]{0,62}$/.test(workspace)) throw Error('Enter your Alibaba workspace ID, not its URL.');
         if (provider === 'local') localModelURL(url);
-        studentConnection = provider === 'course' ? {provider, model: '', key: '', url: ''} : {provider, model, key, url};
+        studentConnection = provider === 'course' ? {provider, model: '', key: '', url: ''} : {provider, model, key, url, workspace};
         document.getElementById('model-settings-button').textContent = provider === 'course' ? 'Model: Course default' : 'Model: ' + model;
         document.getElementById('student-key').value = '';
         document.getElementById('student-model-dialog').close();
@@ -44,8 +87,9 @@ async function studentModelChat(payload) {
     const connection = {...studentConnection};
     payload.student_provider = connection.provider;
     if (connection.provider !== 'course') payload.student_model = connection.model;
+    if (connection.workspace) payload.student_workspace = connection.workspace;
     const headers = {'Content-Type': 'application/json'};
-    if (['openai', 'anthropic'].includes(connection.provider)) headers['X-ATLAS-Student-Key'] = connection.key;
+    if (connection.provider !== 'course' && connection.provider !== 'local') headers['X-ATLAS-Student-Key'] = connection.key;
     const response = await fetch('/course/' + encodeURIComponent(courseId) + '/chat', {
         method: 'POST', headers, body: JSON.stringify(payload), cache: 'no-store'
     });

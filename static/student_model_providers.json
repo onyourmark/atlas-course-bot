@@ -1,0 +1,144 @@
+{
+  "deepseek_cn": {
+    "label": "DeepSeek (China-based service)",
+    "base_url": "https://api.deepseek.com",
+    "models": [
+      [
+        "deepseek-flash",
+        "DeepSeek Flash"
+      ],
+      [
+        "deepseek-v4-pro",
+        "DeepSeek V4 Pro"
+      ]
+    ],
+    "extra_body": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "help": "Use a standard DeepSeek API key.",
+    "docs": "https://api-docs.deepseek.com/"
+  },
+  "qwen_cn": {
+    "label": "Qwen / Alibaba (China, Beijing)",
+    "base_url": "https://{workspace}.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "workspace": true,
+    "models": [
+      [
+        "qwen3.8-max",
+        "Qwen 3.8 Max"
+      ],
+      [
+        "qwen-plus",
+        "Qwen Plus"
+      ],
+      [
+        "qwen-flash",
+        "Qwen Flash"
+      ]
+    ],
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "help": "Use an Alibaba Model Studio key and workspace ID from the Beijing region. Model access depends on your account.",
+    "docs": "https://www.alibabacloud.com/help/en/model-studio/get-api-key"
+  },
+  "kimi_cn": {
+    "label": "Kimi / Moonshot (China-based service)",
+    "base_url": "https://api.moonshot.cn/v1",
+    "models": [
+      [
+        "kimi-k3",
+        "Kimi K3"
+      ]
+    ],
+    "extra_body": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "help": "Use a Kimi API platform key, not a Kimi Code subscription key.",
+    "docs": "https://platform.kimi.com/docs/get-api-key"
+  },
+  "glm_cn": {
+    "label": "GLM / Zhipu (China-based service)",
+    "base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "models": [
+      [
+        "glm-5.3",
+        "GLM 5.3"
+      ],
+      [
+        "glm-5.3-flash",
+        "GLM 5.3 Flash"
+      ]
+    ],
+    "extra_body": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "help": "Use a standard BigModel API key, not a coding-only subscription key.",
+    "docs": "https://docs.bigmodel.cn/cn/guide/develop/openai/introduction"
+  },
+  "minimax_cn": {
+    "label": "MiniMax (China-based service)",
+    "base_url": "https://api.minimax.cn/v1",
+    "models": [
+      [
+        "MiniMax-M3",
+        "MiniMax M3"
+      ]
+    ],
+    "extra_body": {
+      "thinking": {
+        "type": "disabled"
+      },
+      "reasoning_split": true
+    },
+    "help": "Use a key from the MiniMax domestic platform. International account keys are separate.",
+    "docs": "https://platform.minimax.cn/docs/api-reference/text-openai-api"
+  },
+  "qwen_us": {
+    "label": "Qwen / Alibaba (U.S., Virginia)",
+    "base_url": "https://{workspace}.us-east-1.maas.aliyuncs.com/compatible-mode/v1",
+    "workspace": true,
+    "models": [
+      [
+        "qwen3.8-max",
+        "Qwen 3.8 Max"
+      ]
+    ],
+    "extra_body": {
+      "enable_thinking": false
+    },
+    "help": "Use an Alibaba Model Studio key and workspace ID from the Virginia region. Choose a model enabled in that region.",
+    "docs": "https://www.alibabacloud.com/help/en/model-studio/qwen-api-via-openai-chat-completions"
+  },
+  "fireworks_us": {
+    "label": "Fireworks (U.S.-only hosting)",
+    "base_url": "https://us.api.fireworks.ai/inference/v1",
+    "models": [
+      [
+        "accounts/fireworks/routers/deepseek-v4p1-flash-us",
+        "DeepSeek V4.1 Flash (U.S.)"
+      ],
+      [
+        "accounts/fireworks/routers/kimi-k3-us",
+        "Kimi K3 (U.S.)"
+      ],
+      [
+        "accounts/fireworks/routers/glm-5p3-us",
+        "GLM 5.3 (U.S.)"
+      ],
+      [
+        "accounts/fireworks/routers/glm-5p3-flash-us",
+        "GLM 5.3 Flash (U.S.)"
+      ]
+    ],
+    "restricted_models": true,
+    "help": "Use a Fireworks API key, not a key from the model developer. These options use Fireworks’ U.S.-only service and pricing.",
+    "docs": "https://docs.fireworks.ai/serverless/us-only-serverless"
+  }
+}
